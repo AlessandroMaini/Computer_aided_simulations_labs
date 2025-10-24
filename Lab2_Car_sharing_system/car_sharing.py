@@ -824,8 +824,8 @@ class MappingUtilities:
             center = [np.random.uniform(-width/2, 1.5*width), 
                     np.random.uniform(-height/2, 1.5*height)]
             # Covariance matrix, with no correlation
-            cov = [[1000, 0],
-                [0, 1000]]
+            cov = [[100, 0],
+                [0, 100]]
             rv = multivariate_normal(center, cov)
             # Update density map with Gaussian mixture
             density += rv.pdf(pos)
@@ -1242,11 +1242,11 @@ class SimulationEngine:
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
     # SIMULATION PARAMETERS
-    SEED = [0, 42, 69]
-    MAP_SEED = [0, 42, 69]
-    NUM_CARS = [250]
-    NUM_STATIONS = [85]
-    MAX_STATION_CAPACITY = [6]
+    SEED = [42]
+    MAP_SEED = [42]
+    NUM_CARS = [500]
+    NUM_STATIONS = [400]
+    MAX_STATION_CAPACITY = [4]
     SIMULATION_TIME = [30 * 24 * 60]  # in minutes
     MAX_ARRIVAL_RATE = [1.0]  # in requests per minute
     MAX_AUTONOMY = [1500]  # in hm
@@ -1254,7 +1254,7 @@ if __name__ == "__main__":
     MIN_AUTONOMY = [200]  # in hm
     MAX_DESTINATION_CHARGING_DISTANCE = [4]  # in hm
     MAX_PICKUP_DISTANCE = [8]  # in hm
-    MAX_WAITING_TIME = [12]  # in minutes
+    MAX_WAITING_TIME = [20]  # in minutes
     AVERAGE_SPEED = [60.0]  # in km/h
     MIN_TRIP_DISTANCE = [30.0]  # in hm
     MAX_DAILY_RELOCATIONS = [2]  # max relocations per day
