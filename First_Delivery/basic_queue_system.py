@@ -1,9 +1,9 @@
 from enum import Enum
-import math
 from typing import Optional
 from queue import PriorityQueue
 import random
 from transient_detection import TransientDetection
+import matplotlib.pyplot as plt
 
 # ===================================================
 # EVENT DEFINITION
@@ -145,10 +145,7 @@ class QueueSystem:
         if self.is_queue_full():
             self.total_dropped += 1
             return
-
-        # Only FCFS is supported in this simplified version.
         self.waiting_queue.append(client)
-
         self.active_clients[client.id] = client
         self.last_queue_size += 1
         self.last_system_size += 1
@@ -163,27 +160,6 @@ class QueueSystem:
     
     def get_queue_samples(self) -> list[tuple[float, int]]:
         return self.sampled_queue_sizes
-    
-    def get_queue_histogram(self) -> dict[int, int]:
-        histogram = {}
-        for _, q_size in self.sampled_queue_sizes:
-            histogram[q_size] = histogram.get(q_size, 0) + 1
-        return histogram
-    
-    def get_waiting_time_histogram(self, bins: int = 10) -> dict[float, int]:
-        waiting_times = [c.waiting_time() for c in self.served_clients if c.waiting_time() is not None]
-        if not waiting_times:
-            return {}
-        min_time = min(waiting_times)
-        max_time = max(waiting_times)
-        bin_size = (max_time - min_time) / bins if max_time > min_time else 1
-        histogram = {}
-        for wt in waiting_times:
-            bin_index = int((wt - min_time) / bin_size)
-            bin_index = min(bin_index, bins - 1)  # Ensure it falls within the last bin
-            bin_key = round(min_time + bin_index * bin_size, 2)
-            histogram[bin_key] = histogram.get(bin_key, 0) + 1
-        return histogram
     
 
 # ===================================================
@@ -284,7 +260,8 @@ class QueueSimulator:
 
     def __init__(self, num_servers: int, queue_capacity: int, 
                  arrival_rate: float, service_rate: float, sim_time: float, 
-                 schedule_type: ScheduleType = ScheduleType.FCFS, num_starting_customers: int = 1, transient_detector: TransientDetection = None):
+                 schedule_type: ScheduleType = ScheduleType.FCFS, num_starting_customers: int = 1, 
+                 transient_detector: TransientDetection = None):
         self.queue_system = QueueSystem(num_servers, queue_capacity, schedule_type)
         self.fes = FutureEventSet()
         self.arrival_rate = arrival_rate
@@ -295,7 +272,6 @@ class QueueSimulator:
         self.transient_detector = transient_detector
         self.transient_end_time = None
         self.avg_queue_length_over_windows: list[tuple[float, float]] = []
-        self.avg_sum_squared_diffs: list[tuple[float, float]] = []
 
     def event_loop(self):
         # Seed initial customers directly at time 0 (do not create multiple arrival streams)
@@ -345,8 +321,6 @@ class QueueSimulator:
                     new_avg = self.transient_detector.compute_average()
                     self.transient_detector.add_average(event.time, new_avg)
                     self.avg_queue_length_over_windows.append((event.time, new_avg))
-                    avg_sum_squared_diffs = self.transient_detector.get_avg_squared_diffs()
-                    self.avg_sum_squared_diffs.append((event.time, avg_sum_squared_diffs))
                     if self.transient_detector.is_transient_over():
                         self.transient_end_time = self.transient_detector.get_transient_end_time()
                         print(f"Transient detected at time {self.transient_end_time}.")
@@ -387,25 +361,19 @@ class QueueSimulator:
             "Average Server Utilization": avg_server_utilization
         }
     
-    def print_statistics(self, bins: int = 10):
+    def print_statistics(self):
         stats = self.get_statistics()
         for key, value in stats.items():
             print(f"{key}: {value}")
-        avg_squared_diffs = [ssd for _, ssd in self.avg_sum_squared_diffs if ssd is not None]
-        min_squared_diff = min(avg_squared_diffs) if avg_squared_diffs else None
-        if min_squared_diff is not None:
-            print(f"Minimum Average Sum of Squared Differences: {min_squared_diff}")
 
         self.plot_queue_size_over_time()
 
     def plot_queue_size_over_time(self):
-        import matplotlib.pyplot as plt
-
         samples = self.queue_system.get_queue_samples()
         times = [t for t, _ in samples]
         sizes = [s for _, s in samples]
 
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(8, 5))
         plt.step(times, sizes, where='post')
 
         # Plot transient end time if detected
@@ -434,17 +402,6 @@ class QueueSimulator:
                 label = 'Avg Queue Length Over Windows' if i == 0 else None
                 plt.plot(x, y, color='green', linewidth=2, label=label)
 
-        # Plot average sum of squared differences as a dotted line
-        if self.avg_sum_squared_diffs:
-            x = [t for t, _ in self.avg_sum_squared_diffs]
-            y = [ssd for _, ssd in self.avg_sum_squared_diffs]
-            plt.plot(x, y, color='orange', linestyle='--', label='Avg Sum Squared Diffs')
-
-        # Plot also the minimum threshold line
-        if self.transient_detector is not None:
-            threshold = self.transient_detector.threshold
-            plt.axhline(y=threshold, color='purple', linestyle=':', label='Threshold')
-
         # Show legend if any label was set (transient/end or avg windows)
         plt.legend()
         plt.xlabel('Time')
@@ -459,24 +416,24 @@ class QueueSimulator:
 # ===================================================
 
 if __name__ == "__main__":
-    random.seed(123)
+    random.seed(0)
 
     # Simulation parameters
     SERVICE_RATE = 1  # Average of 1 time unit per service
-    ARRIVAL_RATE = 1.2 * SERVICE_RATE  # Load factor of 1.2
-    SIM_TIME = 20000.0     # Total simulation time
+    ARRIVAL_RATE = 0.8 * SERVICE_RATE  # Load factor, change to test different regimes (e.g., 0.8, 1.0, 1.2)
+    SIM_TIME = 10000.0     # Total simulation time
     SCHEDULING = ScheduleType.FCFS
 
     # Setups
     NUM_SERVERS = 1
     QUEUE_CAPACITY = 1000
-    NUM_STARTING_CUSTOMERS = 1
+    NUM_STARTING_CUSTOMERS = 1000 # Change to test initial conditions (e.g., 0, 1000)
 
     # Transient detection parameters
-    WINDOW_SIZE = SIM_TIME // 100  # Duration of the sliding window T
-    STRIDE = WINDOW_SIZE // 10       # Stride S
-    NUM_INTERVALS = 50    # Number of intervals N
-    THRESHOLD = .001 * WINDOW_SIZE     # Variation threshold P
+    WINDOW_SIZE = 100  # Duration of the sliding window T
+    STRIDE = 10       # Stride S
+    NUM_INTERVALS = 20   # Number of intervals N
+    THRESHOLD = 0.1   # Variation threshold P
 
     transient_detector = TransientDetection(WINDOW_SIZE, STRIDE, NUM_INTERVALS, THRESHOLD)
 

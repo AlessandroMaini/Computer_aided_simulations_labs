@@ -66,22 +66,8 @@ class TransientDetection:
             variation = (avg_values[i + 1] - avg_values[i]) ** 2
             variations.append(variation)
         squared_sum = sum(variations)
-        avg_squared_sum = squared_sum / len(variations)
+        avg_squared_sum = squared_sum / (len(variations) - 1)
         return avg_squared_sum < self.threshold
-    
-    def get_avg_squared_diffs(self):
-        """Get the average of squared differences between intervals."""
-        if len(self.averages) < self.num_intervals:
-            return None  # Not enough data to determine
-
-        variations = []
-        avg_values = list(self.averages.values())
-        for i in range(len(avg_values) - 1):
-            variation = (avg_values[i + 1] - avg_values[i]) ** 2
-            variations.append(variation)
-        squared_sum = sum(variations)
-        avg_squared_sum = squared_sum / len(variations)
-        return avg_squared_sum
 
     def get_transient_end_time(self):
         """Get the time when the transient phase ends."""
