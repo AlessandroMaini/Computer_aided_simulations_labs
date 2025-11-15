@@ -279,7 +279,8 @@ class EventHandler:
             return RVGenerator.erlang_k_sample(_lambda, k, 1)[0]
         elif distribution_type == DistributionType.PARETO:
             alpha = params.get("alpha", 1.0)
-            return RVGenerator.pareto_sample(alpha, 1)[0]
+            scale = params.get("scale", 1.0)
+            return RVGenerator.pareto_sample(alpha, 1, scale=scale)[0]
         else:
             raise ValueError(f"Unsupported distribution type: {distribution_type}")
 

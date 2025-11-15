@@ -68,7 +68,7 @@ class RVGenerator:
         return np.array(samples)
 
     @staticmethod
-    def pareto_sample(alpha: float, num_samples: int):
+    def pareto_sample(alpha: float, num_samples: int, scale: float = 1.0):
         """Generate samples from a Pareto distribution using inverse transform method (k=1).
 
         Args:
@@ -88,7 +88,7 @@ class RVGenerator:
         samples = []
         for _ in range(num_samples):
             u = np.random.uniform(0, 1)
-            sample = 1 / (u ** (1 / alpha))
+            sample = scale / (u ** (1 / alpha))
             samples.append(sample)
 
         return np.array(samples)

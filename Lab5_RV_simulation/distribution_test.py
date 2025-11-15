@@ -68,14 +68,14 @@ def test_erlang_k_distribution(_lambda: float, k: int,
         return (True, observed_freq, expected_freq)
 
 def test_pareto_distribution(shape: float, num_intervals: int,
-                             num_samples: int, alpha: float) -> tuple[bool, np.ndarray, np.ndarray]:
+                             num_samples: int, alpha: float, scale: float = 1.0) -> tuple[bool, np.ndarray, np.ndarray]:
     """Chi-square goodness-of-fit test for pareto distribution."""
     
     # Define n intervals in the r.v. support
-    intervals = np.linspace(1, 10, num_intervals + 1)
+    intervals = np.linspace(scale, 10, num_intervals + 1)
 
     # Generate samples and count frequencies in each interval
-    samples = RVGenerator.pareto_sample(shape, num_samples)
+    samples = RVGenerator.pareto_sample(shape, num_samples, scale=scale)
     observed_freq, _ = np.histogram(samples, bins=intervals)
 
     # Compute expected frequencies
@@ -83,7 +83,7 @@ def test_pareto_distribution(shape: float, num_intervals: int,
     for i in range(num_intervals):
         a, b = intervals[i], intervals[i + 1]
         # Compute probability between [a, b] using pareto CDF
-        prob = (1 / a) ** shape - (1 / b) ** shape
+        prob = (scale / a) ** shape - (scale / b) ** shape
         expected_freq.append(prob * num_samples)
     expected_freq = np.array(expected_freq)
 
@@ -115,7 +115,7 @@ def compare_distributions_plot(observed_freq: np.ndarray, expected_freq: np.ndar
 if __name__ == "__main__":
     np.random.seed(0)
     # Test hyperexponential distribution
-    res = test_hyperexponential_distribution(lambdas=[1.0, 2.0, 5.0], probabilities=[0.5, 0.3, 0.2], num_intervals=50, num_samples=1000, alpha=0.05)
+    res = test_hyperexponential_distribution(lambdas=[6.0, 4.0, 2.0], probabilities=[0.6, 0.2, 0.2], num_intervals=50, num_samples=1000, alpha=0.05)
     if res[0]:
         print("Hyperexponential test PASSED")
     else:
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     compare_distributions_plot(res[1], res[2], title="Erlang-K Distribution: Observed vs Expected Frequencies")
 
     # Test Pareto distribution
-    res = test_pareto_distribution(shape=2.5, num_intervals=50, num_samples=1000, alpha=0.05)
+    res = test_pareto_distribution(shape=5.0, num_intervals=50, num_samples=1000, alpha=0.05, scale=0.2)
     if res[0]:
         print("Pareto test PASSED")
     else:
