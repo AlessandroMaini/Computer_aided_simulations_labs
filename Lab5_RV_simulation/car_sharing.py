@@ -1658,12 +1658,12 @@ if __name__ == "__main__":
     # interarrival_params = {"lambdas": [6.0, 4.0, 2.0], "probabilities": [0.6, 0.2, 0.2]}
 
     # Interarrival erlang-k distribution
-    # interarrival_type = DistributionType.ERLANG_K
-    # interarrival_params = {"lambda": 12.0, "k": 3}
+    interarrival_type = DistributionType.ERLANG_K
+    interarrival_params = {"lambda": 12.0, "k": 3}
 
     # Interarrival pareto distribution
-    interarrival_type = DistributionType.PARETO
-    interarrival_params = {"alpha": 5.0, "scale": 0.2}
+    # interarrival_type = DistributionType.PARETO
+    # interarrival_params = {"alpha": 5.0, "scale": 0.2}
 
     all_configs = list(product(
         SEED, MAP_SEED, NUM_CARS, NUM_STATIONS, MAX_STATION_CAPACITY,
