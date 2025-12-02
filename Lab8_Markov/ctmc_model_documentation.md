@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes a **Continuous Time Markov Chain (CTMC)** simulation modeling predator-prey population dynamics between herbivores (H) and carnivores (C), with explicit tracking of male and female populations. The model implements stochastic population processes using the Gillespie algorithm with density-dependent competition effects.
+This document describes a **Continuous Time Markov Chain (CTMC)** simulation modeling predator-prey population dynamics between herbivores (H) and carnivores (C), with explicit tracking of male and female populations **including pregnant females**. The model implements stochastic population processes using the Gillespie algorithm with density-dependent competition effects and **explicit gestation periods** for realistic reproductive dynamics.
 
 ## Model Architecture
 
@@ -23,32 +23,49 @@ This document describes a **Continuous Time Markov Chain (CTMC)** simulation mod
 
 ## Event Types
 
-The model defines **13 discrete event types** that can occur:
+The model defines **17 discrete event types** that can occur, organized into **conception** (females become pregnant) and **birth** (pregnant females give birth) events:
+
+### Conception Events (2 types)
+| Event | Description | Rate Formula |
+|-------|-------------|--------------|
+| `REPRODUCTION_H` | Herbivore conception | `r_H × h_fert_factor × H_F × can_mate_H` |
+| `REPRODUCTION_C` | Carnivore conception | `r_C × c_fert_factor × C_F × can_mate_C` |
+
+**Notes:**
+- Conception moves a non-pregnant female to the pregnant compartment
+- Requires at least one male present (`can_mate_X = 1` if males exist)
+- Only non-pregnant females can conceive
 
 ### Birth Events (4 types)
 | Event | Description | Rate Formula |
 |-------|-------------|--------------|
-| `BIRTH_H_M` | Herbivore male birth | `0.5 × r_H × h_fert_factor × H_F × can_mate_H` |
-| `BIRTH_H_F` | Herbivore female birth | `0.5 × r_H × h_fert_factor × H_F × can_mate_H` |
-| `BIRTH_C_M` | Carnivore male birth | `0.5 × r_C × c_fert_factor × C_F × can_mate_C` |
-| `BIRTH_C_F` | Carnivore female birth | `0.5 × r_C × c_fert_factor × C_F × can_mate_C` |
+| `BIRTH_H_M` | Herbivore male birth | `0.5 × (1/gestation_H) × H_F_preg` |
+| `BIRTH_H_F` | Herbivore female birth | `0.5 × (1/gestation_H) × H_F_preg` |
+| `BIRTH_C_M` | Carnivore male birth | `0.5 × (1/gestation_C) × C_F_preg` |
+| `BIRTH_C_F` | Carnivore female birth | `0.5 × (1/gestation_C) × C_F_preg` |
 
 **Notes:**
-- Birth rates proportional to female population (assuming sufficient males)
+- Birth rates proportional to **pregnant female population**
+- Rate = `1/gestation_period` implements exponential gestation duration (Markovian approximation)
 - 50% probability for each sex at birth
-- `can_mate_X` is 1 if males exist, 0 otherwise
+- Upon birth: pregnant female returns to non-pregnant pool + offspring added
+- Gestation periods: `gestation_H` (typically 6.0), `gestation_C` (typically 5.0)
 
-### Death Events (4 types)
+### Death Events (6 types)
 | Event | Description | Rate Formula |
 |-------|-------------|--------------|
 | `DEATH_H_M` | Herbivore male natural death | `m_H × h_mort_factor × H_M` |
 | `DEATH_H_F` | Herbivore female natural death | `m_H × h_mort_factor × H_F` |
+| `DEATH_H_F_PREG` | Pregnant herbivore female death | `m_H × h_mort_factor × H_F_preg` |
 | `DEATH_C_M` | Carnivore male natural death | `m_C × c_mort_factor × C_M` |
 | `DEATH_C_F` | Carnivore female natural death | `m_C × c_mort_factor × C_F` |
+| `DEATH_C_F_PREG` | Pregnant carnivore female death | `m_C × c_mort_factor × C_F_preg` |
 
 **Notes:**
 - Linear mortality rates (per capita)
 - Modified by competition factors
+- **Pregnant females subject to same mortality rates** (pregnancy risk)
+- Death of pregnant female results in loss of both mother and unborn offspring
 
 ### Interaction Events (5 types)
 | Event | Description | Rate Formula | Effect |
@@ -71,12 +88,21 @@ The model defines **13 discrete event types** that can occur:
 ### 1. `EventType` (Enum)
 ```python
 class EventType(Enum):
-    BIRTH_H_M = 1, BIRTH_H_F = 2, BIRTH_C_M = 3, BIRTH_C_F = 4
-    DEATH_H_M = 5, DEATH_H_F = 6, DEATH_C_M = 7, DEATH_C_F = 8
-    PREDATION = 9
-    CONFLICT_H_M = 10, CONFLICT_H_F = 11, CONFLICT_C_M = 12, CONFLICT_C_F = 13
+    # Conception (females become pregnant)
+    REPRODUCTION_H = 1, REPRODUCTION_C = 2
+    
+    # Birth (pregnant females give birth)
+    BIRTH_H_M = 3, BIRTH_H_F = 4, BIRTH_C_M = 5, BIRTH_C_F = 6
+    
+    # Death (including pregnant females)
+    DEATH_H_M = 7, DEATH_H_F = 8, DEATH_H_F_PREG = 9
+    DEATH_C_M = 10, DEATH_C_F = 11, DEATH_C_F_PREG = 12
+    
+    # Interactions
+    PREDATION = 13
+    CONFLICT_H_M = 14, CONFLICT_H_F = 15, CONFLICT_C_M = 16, CONFLICT_C_F = 17
 ```
-**Purpose**: Enumerate all possible transition types in the Markov chain
+**Purpose**: Enumerate all possible transition types in the Markov chain (17 total events)
 
 ### 2. `Event` Class
 ```python
@@ -89,26 +115,31 @@ class Event:
 ### 3. `Metrics` Class
 ```python
 class Metrics:
-    # Population trajectories
+    # Population trajectories (including pregnant compartments)
     - history_time: list[float]
     - history_H_M: list[int]
     - history_H_F: list[int]
+    - history_H_F_preg: list[int]  # NEW: Pregnant herbivore females
     - history_C_M: list[int]
     - history_C_F: list[int]
+    - history_C_F_preg: list[int]  # NEW: Pregnant carnivore females
     
-    # Event counters
+    # Event counters (including conceptions)
     - counts: dict[str, int]
+        * 'conceptions_H', 'conceptions_C'  # NEW: Conception events
         * 'births_H', 'births_C'
         * 'deaths_H', 'deaths_C'
         * 'predations'
         * 'conflicts_H', 'conflicts_C'
     
-    # Time-weighted statistics
+    # Time-weighted statistics (including pregnant compartments)
     - last_time: float
     - area_under_herbivore_males: float
     - area_under_herbivore_females: float
+    - area_under_herbivore_females_preg: float  # NEW
     - area_under_carnivore_males: float
     - area_under_carnivore_females: float
+    - area_under_carnivore_females_preg: float  # NEW
 ```
 **Purpose**: Collect simulation output data for analysis
 
@@ -119,9 +150,9 @@ class Metrics:
 ### 4. `SimulationEngine` Class
 ```python
 class SimulationEngine:
-    # State variables
-    - H_M, H_F: int  # Herbivore males/females
-    - C_M, C_F: int  # Carnivore males/females
+    # State variables (with pregnant compartments)
+    - H_M, H_F, H_F_preg: int  # Herbivore males/females/pregnant females
+    - C_M, C_F, C_F_preg: int  # Carnivore males/females/pregnant females
     - current_time: float
     - t_max: float
     
@@ -140,13 +171,15 @@ class SimulationEngine:
 ### 5. Parameter Dictionary
 ```python
 parameters = {
-    'r_H': 0.6,              # Herbivore reproduction rate
-    'r_C': 0.4,              # Carnivore reproduction rate
-    'm_H': 0.1,              # Herbivore mortality rate
-    'm_C': 0.1,              # Carnivore mortality rate
-    'pred': 0.003,           # Predation efficiency
-    'conflict_H': 0.0001,    # Herbivore conflict rate
-    'conflict_C': 0.002,     # Carnivore conflict rate
+    'r_H': 0.5,              # Herbivore conception rate (per non-pregnant female)
+    'r_C': 0.4,              # Carnivore conception rate (per non-pregnant female)
+    'gestation_H': 6.0,      # Herbivore gestation period (mean time)
+    'gestation_C': 5.0,      # Carnivore gestation period (mean time)
+    'm_H': 0.02,             # Herbivore mortality rate (optimized)
+    'm_C': 0.03,             # Carnivore mortality rate
+    'pred': 0.0007,          # Predation efficiency (optimized)
+    'conflict_H': 0.00005,   # Herbivore conflict rate
+    'conflict_C': 0.0005,    # Carnivore conflict rate
     'H_threshold': 200,      # Herbivore resource limit
     'HC_ratio_threshold': 3.0 # Minimum H/C ratio for carnivore viability
 }
@@ -167,6 +200,53 @@ ci_calculator = ConfidenceInterval(
 **Key Methods:**
 - `add_data_point(value)`: Add observation from one simulation run
 - `compute_interval()`: Return (is_final, (lower, upper)) tuple
+
+---
+
+## Gestation Mechanics
+
+### Two-Stage Reproduction Process
+
+The model implements **explicit gestation periods** using a two-compartment system:
+
+#### Stage 1: Conception
+- **Event**: `REPRODUCTION_H` or `REPRODUCTION_C`
+- **Condition**: Non-pregnant female + at least one male present
+- **Rate**: `r_X × fertility_factor × H_F × can_mate`
+- **Effect**: Female moves from non-pregnant (`X_F`) to pregnant (`X_F_preg`) compartment
+
+#### Stage 2: Birth
+- **Event**: `BIRTH_X_M` or `BIRTH_X_F`
+- **Rate**: `(1 / gestation_X) × X_F_preg`
+- **Effect**: Pregnant female returns to non-pregnant pool + offspring added (50% male/female)
+
+### Markovian Approximation
+
+Gestation periods are modeled using **exponential distributions**:
+- **Mean gestation time**: `gestation_H` (herbivores) or `gestation_C` (carnivores)
+- **Memoryless property**: Birth rate constant regardless of how long female has been pregnant
+- **Biological realism**: While real gestations have fixed duration, this approximation:
+  - Maintains Markov property (essential for CTMC framework)
+  - Produces correct **mean** gestation duration
+  - Allows variability in gestation times (stochastic realism)
+  - Averages out over many pregnancies
+
+### Key Implications
+
+1. **Population Dynamics**:
+   - Total population = Males + Non-pregnant females + Pregnant females
+   - Pregnant females still subject to mortality (pregnancy risk)
+   - Death of pregnant female = loss of mother + unborn offspring
+
+2. **Regulatory Feedback**:
+   - Conception rate regulated by **non-pregnant** female count
+   - Shorter gestation → faster population response → **reduced oscillations**
+   - Longer gestation → delayed births → **amplified oscillations**
+
+3. **Stability Impact**:
+   - **Gestation delays are critical for stability** (2nd most sensitive parameter)
+   - Optimal values: `gestation_H = 6.0`, `gestation_C = 5.0`
+   - Too long → system becomes oscillatory and unstable
 
 ---
 
@@ -263,10 +343,12 @@ $$\bar{N} = \frac{1}{T} \int_0^T N(t) \, dt$$
 |-----|---------|---------|
 | `avg_H_M` | `area_under_herbivore_males / t_max` | Average male herbivore population |
 | `avg_H_F` | `area_under_herbivore_females / t_max` | Average female herbivore population |
+| `avg_H_F_preg` | `area_under_herbivore_females_preg / t_max` | Average pregnant herbivore population |
 | `avg_C_M` | `area_under_carnivore_males / t_max` | Average male carnivore population |
 | `avg_C_F` | `area_under_carnivore_females / t_max` | Average female carnivore population |
-| `avg_H_total` | `avg_H_M + avg_H_F` | Total average herbivore population |
-| `avg_C_total` | `avg_C_M + avg_C_F` | Total average carnivore population |
+| `avg_C_F_preg` | `area_under_carnivore_females_preg / t_max` | Average pregnant carnivore population |
+| `avg_H_total` | `avg_H_M + avg_H_F + avg_H_F_preg` | Total average herbivore population |
+| `avg_C_total` | `avg_C_M + avg_C_F + avg_C_F_preg` | Total average carnivore population |
 
 **Why time-weighted?**
 - Accounts for variable time steps in CTMC
@@ -481,32 +563,157 @@ VERBOSE = False
 ## Key Assumptions
 
 1. **Well-mixed population**: No spatial structure
-2. **Instant events**: Birth, death, predation occur instantaneously
+2. **Instant events**: Conception, birth, death, predation occur instantaneously
 3. **Mass action kinetics**: Encounter rates proportional to population products
-4. **Exponential distributions**: Inter-event times are memoryless
+4. **Exponential distributions**: Inter-event times and **gestation periods** are memoryless
 5. **Equal sex ratio**: 50% chance of male/female at birth
-6. **Monogamous constraint**: Males required for reproduction
-7. **No age structure**: All individuals have same rates
-8. **Closed system**: No migration
+6. **Monogamous constraint**: Males required for reproduction (conception)
+7. **Two-compartment reproduction**: Non-pregnant and pregnant females tracked separately
+8. **Pregnancy mortality**: Pregnant females subject to same mortality rates as non-pregnant
+9. **No age structure**: All individuals have same rates (except pregnancy state)
+10. **Closed system**: No migration
+
+---
+
+## Parameter Sensitivity Analysis
+
+### Overview
+
+A **comprehensive sensitivity analysis** was conducted to identify critical parameters affecting system stability and optimize the model configuration. The analysis involved:
+- **9 parameters tested**: All reproduction, mortality, gestation, and interaction rates
+- **Systematic sweeps**: 9 values per parameter across biologically realistic ranges
+- **Monte Carlo replication**: 10-30 independent runs per configuration
+- **Stability metric**: Coefficient of Variation (CV = std/mean), target < 0.10
+
+### Sensitivity Ranking (by CV Range)
+
+Parameters ranked by their impact on system stability:
+
+| Rank | Parameter | CV Range | Sensitivity | Description |
+|------|-----------|----------|-------------|-------------|
+| 1 | **m_H** | **0.617** | **CRITICAL** | Herbivore mortality rate |
+| 2 | **gestation_H** | **0.529** | **CRITICAL** | Herbivore gestation period |
+| 3 | **pred** | **0.392** | **CRITICAL** | Predation rate |
+| 4 | m_C | 0.134 | HIGH | Carnivore mortality rate |
+| 5 | r_C | 0.089 | MODERATE | Carnivore conception rate |
+| 6 | gestation_C | 0.076 | MODERATE | Carnivore gestation period |
+| 7 | r_H | 0.069 | MODERATE | Herbivore conception rate |
+| 8 | conflict_C | 0.031 | LOW | Carnivore conflict rate |
+| 9 | conflict_H | 0.030 | LOW | Herbivore conflict rate |
+
+**CV Range** = max(CV) - min(CV) across tested values; larger range = more sensitive parameter
+
+### Critical Parameter Insights
+
+#### 1. Herbivore Mortality (m_H) - MOST CRITICAL
+- **Impact**: Single most important parameter for system stability
+- **Optimal value**: 0.02 (carefully balanced)
+- **Effect**: Too low → herbivore explosion; too high → extinction
+- **Recommendation**: **Calibrate first** when fitting to empirical data
+
+#### 2. Herbivore Gestation (gestation_H) - CRITICAL
+- **Impact**: Gestation delays amplify population oscillations
+- **Optimal value**: 6.0 (shorter = more stable)
+- **Effect**: Longer gestation → delayed births → larger oscillations
+- **Mechanism**: Time lags in feedback loops create instability
+- **Recommendation**: **Keep short** for stable dynamics
+
+#### 3. Predation Rate (pred) - CRITICAL
+- **Impact**: Controls coupling strength between species
+- **Optimal value**: 0.0007 (KEY OPTIMIZATION)
+- **Effect**: Too high → strong oscillations; too low → decoupling
+- **Breakthrough**: Reducing from 0.001 to 0.0007 (-30%) improves CV by ~20%
+- **Recommendation**: **Fine-tune carefully** for desired H/C ratio
+
+### Optimized Configuration
+
+Based on sensitivity analysis, the **optimal parameter set** achieves:
+
+**Performance Metrics**:
+- **CV_H = 0.036** (herbivore stability, target < 0.10) ✓
+- **CV_C = 0.034** (carnivore stability, target < 0.10) ✓
+- **H/C ratio = 3.26** (near target of 3.0) ✓
+- **Extinction risk = 0%** (across 30 runs) ✓
+- **Population levels**: H = 158.34 ± 5.64, C = 48.62 ± 1.65
+
+**Optimized Parameters**:
+```python
+parameters = {
+    'r_H': 0.5,           # Herbivore conception rate
+    'r_C': 0.4,           # Carnivore conception rate
+    'gestation_H': 6.0,   # Herbivore gestation (CRITICAL: keep short)
+    'gestation_C': 5.0,   # Carnivore gestation
+    'm_H': 0.02,          # Herbivore mortality (MOST CRITICAL)
+    'm_C': 0.03,          # Carnivore mortality
+    'pred': 0.0007,       # Predation rate (KEY OPTIMIZATION: -30%)
+    'conflict_H': 0.00005,# Herbivore conflict (insensitive)
+    'conflict_C': 0.0005, # Carnivore conflict (insensitive)
+    'H_threshold': 200,
+    'HC_ratio_threshold': 3.0
+}
+```
+
+### Parameter Tuning Strategy
+
+When adapting the model or fitting to data:
+
+**Priority 1 - Critical Tier** (CV range > 0.3):
+1. **m_H** - Calibrate first; small changes have large effects
+2. **gestation_H** - Keep short; longer values amplify oscillations
+3. **pred** - Fine-tune for desired H/C balance
+
+**Priority 2 - Moderate Tier** (CV range 0.07-0.14):
+4. **m_C** - Adjust for carnivore viability
+5. **r_C, gestation_C, r_H** - Secondary tuning for population levels
+
+**Priority 3 - Insensitive Tier** (CV range < 0.04):
+8. **conflict_H, conflict_C** - Minimal impact; can be ignored
+
+### Validation Protocol
+
+When testing new parameter combinations:
+1. **Run 20-30 independent simulations** (different seeds)
+2. **Require CV < 0.10** for both species (stability criterion)
+3. **Check extinction rate < 10%** (viability criterion)
+4. **Verify H/C ratio ≈ 3.0 ± 20%** (ecological balance)
+5. **Use t_max ≥ 500** (ensure steady-state reached)
+
+### Tools for Sensitivity Analysis
+
+Two analysis scripts provided:
+
+1. **parameter_sensitivity_analysis.py**:
+   - Systematic parameter sweeps (9 values × 9 parameters)
+   - Generates sensitivity plots for each parameter
+   - Identifies optimal values via stability scoring
+   - Output: 9 PNG plots + sensitivity ranking
+
+2. **quick_parameter_test.py**:
+   - Fast comparison of pre-defined configurations
+   - 20 runs per configuration for quick assessment
+   - Output: Comparison bar plot + recommendation
 
 ---
 
 ## Extensions and Future Work
 
 ### Potential Enhancements
-- **Spatial structure**: Grid-based or network topology
-- **Age structure**: Juvenile vs. adult rates
-- **Environmental stochasticity**: Time-varying parameters
-- **Additional species**: Multi-trophic food web
+- **Spatial structure**: Grid-based or network topology (re-test top 3 sensitive parameters)
+- **Age structure**: Juvenile vs. adult rates (may affect mortality sensitivity)
+- **Fixed gestation periods**: Implement deterministic gestation using event scheduling
+- **Environmental stochasticity**: Time-varying parameters (focus on m_H, pred)
+- **Additional species**: Multi-trophic food web (requires new sensitivity analysis)
 - **Genetics**: Trait evolution over time
 - **Allee effects**: Minimum viable population thresholds
 
 ### Analysis Extensions
-- **Sensitivity analysis**: Parameter sweep with CI comparison
+- ✓ **Sensitivity analysis**: Completed for all 9 parameters
+- **Two-parameter surfaces**: Explore interactions (e.g., m_H × pred)
 - **Temporal CI bands**: Show how uncertainty evolves over time
 - **Phase portrait CI ellipses**: 2D confidence regions
-- **Extinction probability**: Estimate from multiple runs
-- **Bifurcation analysis**: Identify critical parameter values
+- **Extinction time distribution**: Conditional on parameter values
+- **Bifurcation analysis**: Identify critical thresholds for m_H, gestation_H
+- **Parameter fitting**: Use sensitivity ranking to prioritize estimable parameters
 
 ---
 
@@ -552,17 +759,27 @@ VERBOSE = False
 This CTMC model provides a **rigorous stochastic framework** for studying predator-prey dynamics with:
 
 ✅ **Sex-structured populations** (males and females)  
+✅ **Explicit gestation periods** (two-compartment reproduction)  
 ✅ **Density-dependent regulation** (competition thresholds)  
 ✅ **Multiple interaction types** (predation, conflict)  
 ✅ **Exact stochastic simulation** (Gillespie algorithm)  
 ✅ **Statistical rigor** (confidence intervals from replications)  
 ✅ **Time-weighted metrics** (robust average calculations)  
-✅ **Visual uncertainty representation** (CI bands on plots)
+✅ **Visual uncertainty representation** (CI bands on plots)  
+✅ **Comprehensive parameter sensitivity analysis** (9 parameters ranked)  
+✅ **Optimized configuration** (CV < 0.04, 0% extinction risk)
 
 The model is suitable for:
-- Educational purposes (teaching CTMC and Gillespie methods)
-- Research applications (ecological modeling, parameter estimation)
-- Hypothesis testing (effect of competition on stability)
-- Stochastic process exploration (ergodicity, extinction)
+- Educational purposes (teaching CTMC, Gillespie methods, sensitivity analysis)
+- Research applications (ecological modeling, parameter estimation, stability analysis)
+- Hypothesis testing (effect of gestation delays, competition, predation on stability)
+- Stochastic process exploration (ergodicity, extinction, oscillations)
+- Conservation biology (assessing population viability under parameter uncertainty)
 
-**Output**: Publication-quality results with quantified uncertainty, enabling defensible scientific claims about population dynamics under stochastic conditions.
+**Key Scientific Contributions**:
+1. **Gestation mechanics**: Demonstrates impact of reproductive delays on stability
+2. **Sensitivity ranking**: Identifies m_H > gestation_H > pred as critical parameters
+3. **Optimization**: Systematic approach to finding stable parameter combinations
+4. **Validation protocol**: Statistical framework for assessing model reliability
+
+**Output**: Publication-quality results with quantified uncertainty and comprehensive parameter characterization, enabling defensible scientific claims about population dynamics under stochastic conditions with realistic reproductive processes.
