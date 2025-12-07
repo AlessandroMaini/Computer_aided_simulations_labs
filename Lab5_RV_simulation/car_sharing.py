@@ -23,7 +23,6 @@ class DistributionType(Enum):
 # EVENT DEFINITION
 # ------------------------------------------------------------------------------
 class EventType(Enum):
-    """Event types in the car sharing system."""
     USER_REQUEST = "USER_REQUEST"
     USER_ABANDON = "USER_ABANDON"
     CAR_PARKING = "CAR_PARKING"
@@ -31,7 +30,6 @@ class EventType(Enum):
     CAR_RELOCATE = "CAR_RELOCATE"
 
 class Event:
-    """Discrete event with type, time, and entity identifiers."""
     def __init__(self, event_type: EventType, time: float, user_id: Optional[int] = None, 
                  car_id: Optional[int] = None, station_id: Optional[int] = None):
         self.event_type = event_type
@@ -42,15 +40,12 @@ class Event:
         self.cancelled: bool = False
 
     def cancel(self):
-        """Mark event as cancelled."""
         self.cancelled = True
 
     def is_cancelled(self) -> bool:
-        """Check if event is cancelled."""
         return self.cancelled
     
     def __lt__(self, other) -> bool:
-        """Compare events by time for priority queue."""
         return self.time < other.time
    
 
@@ -58,7 +53,6 @@ class Event:
 # CAR
 # ------------------------------------------------------------------------------
 class Car:
-    """Car with location, autonomy, charging, and assignment state."""
     def __init__(self, car_id: int, location: tuple, max_autonomy: float, charging_rate: float, min_autonomy: float, 
                  max_destination_charging_distance: float, speed: float, station_id: int):
         self.car_id = car_id
@@ -77,7 +71,6 @@ class Car:
         self.relocating_station_id: Optional[int] = None
 
     def drive(self, distance: float, destination: tuple) -> bool:
-        """Drive to destination, consuming autonomy."""
         self.location = destination
         self.autonomy -= distance
         return True
@@ -144,7 +137,6 @@ class Car:
 # USER
 # ------------------------------------------------------------------------------
 class User:
-    """User with location, destination, and waiting/service state."""
     def __init__(self, user_id: int, location: tuple, destination: tuple, max_waiting_time: float, 
                  max_pickup_distance: float, request_time: float):
         self.user_id = user_id
@@ -200,7 +192,6 @@ class User:
 # CHARGING STATION
 # ------------------------------------------------------------------------------
 class ChargingStation:
-    """Charging station with location, capacity, and parked cars tracking."""
     def __init__(self, station_id: int, location: tuple, capacity: int):
         self.station_id = station_id
         self.location = location 
@@ -241,7 +232,6 @@ class ChargingStation:
 # FUTURE EVENT SET
 # ------------------------------------------------------------------------------
 class FutureEventSet:
-    """Priority queue of events ordered by time."""
     def __init__(self):
         self.events: PriorityQueue[Event] = PriorityQueue()
         self.event_count: int = 0
@@ -269,9 +259,7 @@ class FutureEventSet:
 # CAR SHARING SYSTEM
 # -------------------------------------------------------------------------------
 class CarSharingSystem:
-    """Central system managing cars, users, stations, and statistics."""
     def __init__(self, cars: list[Car], stations: list[ChargingStation]):
-        """Initialize system with cars and stations."""
         self.cars = cars
         self.stations = stations
 
@@ -297,6 +285,10 @@ class CarSharingSystem:
         self.sampled_num_serving_users: list[tuple[float, int]] = []  # (time, num_serving_users)
         self.sampled_num_total_users: list[tuple[float, int]] = []  # (time, num_total_users)
         self.num_samples: int = 0
+        
+        # Interarrival time tracking
+        self.interarrival_times: list[float] = []  # Track all interarrival times
+        self.arrival_times: list[float] = []  # Track all arrival times for histogram
 
         # Initialize time-weighted statistics
         self.area_under_available_cars: float = 0.0
@@ -458,62 +450,31 @@ class CarSharingSystem:
         times = [t for t, _ in self.sampled_num_total_users]
         num_total = [n for _, n in self.sampled_num_total_users]
         return times, num_total
+    
+    def add_interarrival_time(self, interarrival_time: float):
+        """Record interarrival time."""
+        self.interarrival_times.append(interarrival_time)
+    
+    def add_arrival_time(self, arrival_time: float):
+        """Record arrival time for histogram."""
+        self.arrival_times.append(arrival_time)
 
 
 # ------------------------------------------------------------------------------
 # EVENT HANDLERS
 # ------------------------------------------------------------------------------
 class EventHandler:
-    """Static methods to handle simulation events."""
-    
     @staticmethod
     def compute_travel_time(distance: float, speed: float, map_unit_km: float = 0.1) -> float:
-        """
-        Compute travel time in minutes from grid distance.
-        
-        Converts grid-based distance to kilometers, then calculates travel time
-        based on speed and converts to minutes.
-        
-        Args:
-            distance: Distance in grid units
-            speed: Speed in km/h
-            map_unit_km: Conversion factor from grid units to kilometers (default: 0.1)
-            
-        Returns:
-            Travel time in minutes
-        """
         distance_km = distance * map_unit_km
         return (distance_km / speed) * 60.0
     
     @staticmethod
     def compute_distance(loc1: tuple, loc2: tuple) -> float:
-        """
-        Compute Euclidean distance between two locations on the grid.
-        
-        Args:
-            loc1: First location as (x, y) tuple
-            loc2: Second location as (x, y) tuple
-            
-        Returns:
-            Euclidean distance in grid units
-        """
         return ((loc1[0] - loc2[0]) ** 2 + (loc1[1] - loc2[1]) ** 2) ** 0.5
     
     @staticmethod
     def find_nearest_available_car(location: tuple, cars: list[Car], max_distance: float) -> Optional[tuple[Car, float]]:
-        """
-        Find the nearest available car within maximum pickup distance.
-        
-        Searches all cars for available ones within range and returns the closest.
-        
-        Args:
-            location: Target location (x, y) where car is needed
-            cars: List of all cars in system
-            max_distance: Maximum acceptable distance in grid units
-            
-        Returns:
-            Tuple of (car, distance) if suitable car found, None otherwise
-        """
         available_cars = []
         for car in cars:
             if car.is_available():
@@ -528,17 +489,6 @@ class EventHandler:
     @staticmethod
     def find_nearest_station(location: tuple, stations: list[ChargingStation], 
                            exclude_full: bool = True) -> Optional[tuple[ChargingStation, float]]:
-        """
-        Find the nearest charging station to a location.
-        
-        Args:
-            location: Target location (x, y) to find station near
-            stations: List of all charging stations
-            exclude_full: If True, only consider stations with available spots
-            
-        Returns:
-            Tuple of (station, distance) if suitable station found, None otherwise
-        """
         candidates = []
         for station in stations:
             if exclude_full and station.is_full():
@@ -554,36 +504,6 @@ class EventHandler:
     def _assign_car_to_user(car: Car, user: User, stations: list[ChargingStation], 
                            car_sharing_system: CarSharingSystem, future_event_set: FutureEventSet,
                            current_time: float, map_unit_km: float) -> bool:
-        """
-        Assign a car to a user and schedule the trip completion event.
-        
-        This helper performs the complete car assignment workflow:
-        1. Remove car from charging/station if applicable
-        2. Assign car to user and user to car
-        3. Update availability and usage counters
-        4. Record waiting time
-        5. Calculate and record trip distance
-        6. Schedule CAR_PARKING event for trip completion
-        
-        Updates car_sharing_system statistics including:
-        - last_available_car_count (via update_available_car_count)
-        - last_used_car_count (via update_used_car_count)
-        - last_used_station_spots (via release_station_spot if car was at station)
-        - total_trip_distance
-        - total_waiting_time
-        
-        Args:
-            car: Car to assign to user
-            user: User requesting the car
-            stations: List of all stations (to remove car from station if parked)
-            car_sharing_system: System object for statistics updates
-            future_event_set: FES to schedule trip completion event
-            current_time: Current simulation time (minutes)
-            map_unit_km: Conversion factor from grid units to km
-        
-        Returns:
-            True if assignment successful
-        """
         # Remove car from charging/station if necessary
         if car.charging:
             car_sharing_system.remove_charging_car(car)
@@ -618,26 +538,13 @@ class EventHandler:
                            demand_origin_map: np.ndarray, demand_dest_map: np.ndarray,
                            interarrival_type: DistributionType = DistributionType.EXPONENTIAL,
                            interarrival_params: dict = {"lambda": 1.0}):
-        """
-        Generate and schedule the next user request event.
-        
-        Samples inter-arrival time from exponential distribution based on arrival_rate.
-        Samples origin and destination from probability maps, ensuring minimum trip distance.
-        Creates new user and schedules USER_REQUEST event.
-        
-        Args:
-            user: Current user (used to get next user_id and parameters)
-            car_sharing_system: System to register new active user
-            future_event_set: FES to schedule next request event
-            current_time: Current simulation time (minutes)
-            arrival_rate: Current arrival rate (requests per minute)
-            min_trip_distance: Minimum required trip distance in grid units
-            demand_origin_map: Probability map for sampling trip origins
-            demand_dest_map: Probability map for sampling trip destinations
-        """
         inter_arrival_time = EventHandler._generate_new_time(interarrival_type, interarrival_params)
         next_request_time = current_time + inter_arrival_time
         next_user_id = user.user_id + 1
+        
+        # Track interarrival time and arrival time
+        car_sharing_system.add_interarrival_time(inter_arrival_time)
+        car_sharing_system.add_arrival_time(next_request_time)
         
         # Sample origin and destination ensuring min trip distance
         next_user_location = MappingUtilities.get_random_location_from_prob_map(demand_origin_map)
@@ -659,38 +566,6 @@ class EventHandler:
                             demand_dest_map: np.ndarray, map_unit_km: float = 0.1,
                             interarrival_type: DistributionType = DistributionType.EXPONENTIAL,
                             interarrival_params: dict = {"lambda": 1.0}) -> bool:
-        """
-        Handle USER_REQUEST event when a user requests a car.
-        
-        Processing flow:
-        1. Retrieve user from active users
-        2. Increment total_user_requests counter
-        3. Search for nearest available car within max_pickup_distance
-        4. If car found: assign car to user immediately
-        5. If no car: add user to waiting queue and schedule USER_ABANDON event
-        6. Schedule next USER_REQUEST event
-        
-        Statistics Updated:
-        - total_user_requests (incremented)
-        - If car assigned: all assignment-related statistics
-        - If queued: waiting_users dictionary updated
-        
-        Args:
-            event: USER_REQUEST event being processed
-            cars: List of all cars in system
-            car_sharing_system: System object for state and statistics
-            stations: List of all stations
-            future_event_set: FES for scheduling new events
-            current_time: Current simulation time (minutes)
-            arrival_rate: Current arrival rate for next user
-            min_trip_distance: Minimum trip distance for next user
-            demand_origin_map: Origin probability map for next user
-            demand_dest_map: Destination probability map for next user
-            map_unit_km: Grid to km conversion factor
-            
-        Returns:
-            True if user was immediately assigned a car, False if queued
-        """
         user = car_sharing_system.get_active_user(event.user_id)
         if user is None:
             return False
@@ -723,31 +598,6 @@ class EventHandler:
     
     @staticmethod
     def handle_user_abandon(event: Event, car_sharing_system: CarSharingSystem) -> bool:
-        """
-        Handle USER_ABANDON event when a user gives up waiting.
-        
-        Occurs when user has been waiting for max_waiting_time without car assignment.
-        
-        Processing flow:
-        1. Retrieve user from active users
-        2. Check if user is still waiting
-        3. Mark user as abandoned
-        4. Remove from waiting queue and active users
-        5. Increment abandonment counter
-
-        Statistics Updated:
-        - total_abandoned_requests (incremented)
-        - abandoned_users (user added)
-        - waiting_users (user removed)
-        - active_users (user removed)
-        
-        Args:
-            event: USER_ABANDON event being processed
-            car_sharing_system: System object for state and statistics
-            
-        Returns:
-            True if user was waiting and successfully abandoned, False otherwise
-        """
         user: User = car_sharing_system.get_active_user(event.user_id)
         if user is None:
             return False
@@ -761,30 +611,6 @@ class EventHandler:
     
     @staticmethod
     def _park_car_at_station(car: Car, station: ChargingStation, car_sharing_system: CarSharingSystem, relocate: bool = False):
-        """
-        Park a car at a charging station and start charging.
-        
-        Helper method to handle parking logic whether from regular
-        trip completion or relocation.
-        
-        Processing:
-        1. If not relocate: reserve spot at station (relocate already reserved)
-        2. Associate car with station_id
-        3. Increment occupied station spots counter
-        4. Add car to charging cars registry
-        5. Enable charging flag
-        6. Update car location to station location
-        
-        Statistics Updated:
-        - last_used_station_spots (via occupy_station_spot)
-        - charging_cars dictionary (car added)
-        
-        Args:
-            car: Car to park at station
-            station: Station where car will park
-            car_sharing_system: System for statistics updates
-            relocate: If True, spot was already reserved during relocation scheduling
-        """
         if not relocate:
             station.park_car(car.car_id)
         car.park_in_station(station.station_id)
@@ -1213,7 +1039,6 @@ class EventHandler:
 # MAPPING UTILITIES
 # ------------------------------------------------------------------------------
 class MappingUtilities:
-    """Utility methods for spatial probability maps."""
 
     @staticmethod
     def create_population_density(width: int = 100, height: int = 100, n_centers: int = 5) -> np.ndarray:
@@ -1286,8 +1111,6 @@ class MappingUtilities:
 # SIMULATION ENGINE
 # ------------------------------------------------------------------------------
 class SimulationEngine:
-    """Main simulation engine managing cars, users, stations, and event processing."""
-    
     def __init__(self, seed: int, map_seed: int, num_cars: int, num_stations: int, 
                  max_station_capacity: int, simulation_time: float,
                  max_autonomy: int, charging_rate: float, min_autonomy: int, 
@@ -1300,7 +1123,6 @@ class SimulationEngine:
                  min_sample_count: int = 10, batch_size: float = 30.0,
                  interarrival_type: DistributionType = DistributionType.EXPONENTIAL,
                  interarrival_params: dict = {"lambda": 1.0},):
-        """Initialize simulation with parameters and initial state."""
         # Set seed for map generation
         np.random.seed(map_seed)
         self.num_cars = num_cars
@@ -1414,7 +1236,6 @@ class SimulationEngine:
         self.car_sharing_system = CarSharingSystem(cars=self.cars, stations=self.stations)
 
     def event_loop(self):
-        """Execute main discrete-event simulation loop."""
         first_user_location = MappingUtilities.get_random_location_from_prob_map(self.home_prob_map)
         travel_distance = 0.0
         while travel_distance < self.min_trip_distance:
@@ -1514,11 +1335,20 @@ class SimulationEngine:
                     self.fes.schedule(relocation_event)
 
     def get_origin_destination_maps(self, time_min: float) -> tuple[np.ndarray, np.ndarray]:
-        """Return constant demand probability maps."""
         return self.demand_prob_map, self.demand_prob_map
                 
     def get_statistics(self) -> dict[str, float]:
-        """Compute and return simulation performance statistics."""
+        # Compute interarrival statistics
+        interarrival_times = self.car_sharing_system.interarrival_times
+        if len(interarrival_times) > 0:
+            mean_interarrival = np.mean(interarrival_times)
+            std_interarrival = np.std(interarrival_times, ddof=1) if len(interarrival_times) > 1 else 0.0
+            cv_interarrival = std_interarrival / mean_interarrival if mean_interarrival > 0 else 0.0
+        else:
+            mean_interarrival = 0.0
+            std_interarrival = 0.0
+            cv_interarrival = 0.0
+        
         stats = {
             "total_user_requests": self.car_sharing_system.total_user_requests,
             "total_abandoned_requests": self.car_sharing_system.total_abandoned_requests,
@@ -1533,11 +1363,76 @@ class SimulationEngine:
             "charging_station_utilization_rate": self.car_sharing_system.area_under_used_station / \
             (self.total_capacity * self.simulation_time),
             "average_queue_length": self.car_sharing_system.area_under_queue_length / self.simulation_time,
+            "mean_interarrival_time": mean_interarrival,
+            "std_interarrival_time": std_interarrival,
+            "cv_interarrival_time": cv_interarrival,
         }
         return stats
     
+    def plot_arrival_histogram(self):
+        arrival_times = self.car_sharing_system.arrival_times
+        
+        if len(arrival_times) == 0:
+            print("No arrival data to plot.")
+            return
+        
+        # Create bins for the entire simulation period
+        # Use bins of 60 minutes (1 hour) for better visualization
+        bin_width = 60.0  # minutes
+        num_bins = int(np.ceil(self.simulation_time / bin_width))
+        bins = np.linspace(0, self.simulation_time, num_bins + 1)
+        
+        # Count arrivals in each bin
+        counts, bin_edges = np.histogram(arrival_times, bins=bins)
+        
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+        
+        # Plot 1: Histogram of arrivals per time bin
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        ax1.bar(bin_centers, counts, width=bin_width * 0.9, alpha=0.7, edgecolor='black')
+        ax1.axhline(y=np.mean(counts), color='r', linestyle='--', linewidth=2, 
+                   label=f'Mean: {np.mean(counts):.2f}')
+        ax1.axhline(y=np.mean(counts) + np.std(counts), color='orange', linestyle=':', linewidth=1.5,
+                   label=f'Mean ± Std: {np.mean(counts):.2f} ± {np.std(counts):.2f}')
+        ax1.axhline(y=np.mean(counts) - np.std(counts), color='orange', linestyle=':', linewidth=1.5)
+        ax1.set_xlabel(f'Time (minutes)', fontsize=12)
+        ax1.set_ylabel('Number of Arrivals', fontsize=12)
+        ax1.set_title(f'Arrival Pattern: Number of Arrivals per {bin_width:.0f}-Minute Interval\n' + 
+                     f'Distribution: {self.interarrival_type.value}', fontsize=14, fontweight='bold')
+        ax1.legend(fontsize=10)
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot 2: Distribution of arrivals per bin (to show variability)
+        ax2.hist(counts, bins=30, alpha=0.7, edgecolor='black', color='steelblue')
+        ax2.axvline(x=np.mean(counts), color='r', linestyle='--', linewidth=2, 
+                   label=f'Mean: {np.mean(counts):.2f}')
+        ax2.axvline(x=np.mean(counts) + np.std(counts), color='orange', linestyle=':', linewidth=1.5)
+        ax2.axvline(x=np.mean(counts) - np.std(counts), color='orange', linestyle=':', linewidth=1.5,
+                   label=f'Std: {np.std(counts):.2f}')
+        ax2.set_xlabel('Arrivals per Bin', fontsize=12)
+        ax2.set_ylabel('Frequency', fontsize=12)
+        ax2.set_title(f'Distribution of Arrival Counts Across Bins', fontsize=14, fontweight='bold')
+        ax2.legend(fontsize=10)
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(f'arrival_pattern_histogram_{self.interarrival_type.value}.png', dpi=300)
+        plt.show()
+        
+        # Print bin statistics
+        print("\n" + "="*70)
+        print("ARRIVAL PATTERN STATISTICS")
+        print("="*70)
+        print(f"Bin width: {bin_width:.0f} minutes")
+        print(f"Number of bins: {num_bins}")
+        print(f"Mean arrivals per bin: {np.mean(counts):.2f}")
+        print(f"Std arrivals per bin: {np.std(counts):.2f}")
+        print(f"Min arrivals in a bin: {np.min(counts)}")
+        print(f"Max arrivals in a bin: {np.max(counts)}")
+        print("="*70)
+    
     def plot_transient_phase(self):
-        """Visualize transient phase detection results."""
         samples = self.car_sharing_system.get_num_total_users_over_time()
         times = samples[0]
         queue_lengths = samples[1]
@@ -1548,15 +1443,15 @@ class SimulationEngine:
         if self.transient_end_time is not None:
             plt.axvline(x=self.transient_end_time, color='r', linestyle='--', label='Transient End Time')
 
-        plt.title('Number of Total Users Over Time')
+        plt.title(f'Number of Total Users Over Time - {self.interarrival_type.value}', fontsize=14, fontweight='bold')
         plt.xlabel('Time (minutes)')
         plt.ylabel('Number of Total Users')
         plt.legend()
         plt.grid()
+        plt.savefig(f'transient_phase_detection_{self.interarrival_type.value}.png', dpi=300)
         plt.show()
 
     def print_statistics(self):
-        """Display simulation results and visualizations."""
         stats = self.get_statistics()
         
         # Print overall statistics in formatted table
@@ -1572,6 +1467,10 @@ class SimulationEngine:
         print(f"Vehicle utilization rate: {stats['vehicle_utilization_rate']:.2f}")
         print(f"Charging station utilization rate: {stats['charging_station_utilization_rate']:.2f}")
         print(f"Average queue length: {stats['average_queue_length']:.2f} users")
+        print("\n--- Interarrival Time Statistics ---")
+        print(f"Mean interarrival time: {stats['mean_interarrival_time']:.4f} minutes")
+        print(f"Std interarrival time: {stats['std_interarrival_time']:.4f} minutes")
+        print(f"Total interarrival samples: {len(self.car_sharing_system.interarrival_times)}")
         print("="*70)
         
         # Print confidence interval if computed
@@ -1613,6 +1512,9 @@ class SimulationEngine:
                 print(f"Status: ⚠ No batches collected after transient period")
             
             print("="*70)
+        
+        # Plot arrival histogram to show distribution differences
+        self.plot_arrival_histogram()
 
         if self.transient_end_time is not None:
             self.plot_transient_phase()
@@ -1658,12 +1560,12 @@ if __name__ == "__main__":
     # interarrival_params = {"lambdas": [6.0, 4.0, 2.0], "probabilities": [0.6, 0.2, 0.2]}
 
     # Interarrival erlang-k distribution
-    interarrival_type = DistributionType.ERLANG_K
-    interarrival_params = {"lambda": 12.0, "k": 3}
+    # interarrival_type = DistributionType.ERLANG_K
+    # interarrival_params = {"lambda": 12.0, "k": 3}
 
     # Interarrival pareto distribution
-    # interarrival_type = DistributionType.PARETO
-    # interarrival_params = {"alpha": 5.0, "scale": 0.2}
+    interarrival_type = DistributionType.PARETO
+    interarrival_params = {"alpha": (5.0/3.0), "scale": 0.1}
 
     all_configs = list(product(
         SEED, MAP_SEED, NUM_CARS, NUM_STATIONS, MAX_STATION_CAPACITY,

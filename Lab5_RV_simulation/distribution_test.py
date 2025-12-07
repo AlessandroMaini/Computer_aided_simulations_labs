@@ -110,7 +110,10 @@ def compare_distributions_plot(observed_freq: np.ndarray, expected_freq: np.ndar
     plt.ylabel('Frequencies')
     plt.title(title)
     plt.legend()
+    # Save image as high-resolution PNG
+    plt.savefig(title[0] + ".png", dpi=300, bbox_inches='tight')
     plt.show()
+    plt.close()
     
 if __name__ == "__main__":
     np.random.seed(0)
@@ -124,7 +127,7 @@ if __name__ == "__main__":
     compare_distributions_plot(res[1], res[2], title="Hyperexponential Distribution: Observed vs Expected Frequencies")
 
     # Test Erlang-K distribution
-    res = test_erlang_k_distribution(_lambda=1.0, k=5, num_intervals=50, num_samples=1000, alpha=0.05)
+    res = test_erlang_k_distribution(_lambda=4.0, k=3, num_intervals=50, num_samples=1000, alpha=0.05)
     if res[0]:
         print("Erlang-K test PASSED")
     else:
@@ -133,7 +136,7 @@ if __name__ == "__main__":
     compare_distributions_plot(res[1], res[2], title="Erlang-K Distribution: Observed vs Expected Frequencies")
 
     # Test Pareto distribution
-    res = test_pareto_distribution(shape=5.0, num_intervals=50, num_samples=1000, alpha=0.05, scale=0.2)
+    res = test_pareto_distribution(shape=2, num_intervals=50, num_samples=1000, alpha=0.05, scale=1)
     if res[0]:
         print("Pareto test PASSED")
     else:

@@ -550,41 +550,29 @@ def run_multiple_simulations(num_runs: int, base_seed: int, t_max: float,
 # --------------------------------------------------
 if __name__ == "__main__":
     # --- CONFIGURATION ---
-    MODE = "multiple"  # Change to "single" for single detailed run with plots
+    MODE = "single"  # Change to "single" for single detailed run with plots
     
-    # Initial Populations (balanced starting point)
-    initial_pop = {'H_M': 50, 'H_F': 50, 'C_M': 10, 'C_F': 10}
+    # Initial Populations
+    initial_pop = {'H_M': 80, 'H_F': 80, 'C_M': 5, 'C_F': 5}
     
     # Model Parameters (OPTIMIZED FOR MAXIMUM STABILITY)
-    # Based on comprehensive sensitivity analysis showing:
-    #   - Most sensitive: m_H (CV range: 0.617) > gestation_H (0.529) > pred (0.392)
-    #   - Moderately sensitive: m_C (0.134) > r_C (0.089) > gestation_C (0.076)
-    #   - Least sensitive: r_H (0.069) > conflict_C (0.031) > conflict_H (0.030)
-    #
-    # Optimal configuration achieves:
-    #   - CV_H = 0.037, CV_C = 0.034 (excellent stability, target < 0.10)
-    #   - H/C ratio = 3.29 (near target of 3.0)
-    #   - Zero extinction risk across 20+ independent runs
     parameters = {
         # Reproduction Rates (per female)
         'r_H': 0.5,           # Herbivore conception rate
         'r_C': 0.4,           # Carnivore conception rate
         
         # Gestation periods (mean time in exponential distribution)
-        # Note: Shorter gestation improves stability (2nd most sensitive)
         'gestation_H': 6.0,   # Herbivore gestation time
         'gestation_C': 5.0,   # Carnivore gestation time
         
         # Natural Mortality Rates (per individual)
-        # Note: m_H is THE most critical parameter for system stability
-        'm_H': 0.02,          # Herbivore mortality (carefully balanced)
-        'm_C': 0.03,          # Carnivore mortality (4th most sensitive)
+        'm_H': 0.02,          # Herbivore mortality
+        'm_C': 0.03,          # Carnivore mortality
         
         # Predation efficiency (interaction rate)
-        # CRITICAL: Reduced from 0.001 to 0.0007 for optimal stability (3rd most sensitive)
-        'pred': 0.0007,       # Predation rate (KEY OPTIMIZATION: -30% improves CV by ~20%)
+        'pred': 0.0007,       # Predation rate
         
-        # Conflict rates (density dependent) - minimal impact on stability
+        # Conflict rates (density dependent)
         'conflict_H': 0.00005,# Herbivore conflict rate
         'conflict_C': 0.0005, # Carnivore conflict rate
         

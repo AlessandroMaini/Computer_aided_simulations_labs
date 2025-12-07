@@ -123,8 +123,9 @@ class QueueSystem:
         self.last_queue_size = 0
         self.last_system_size = 0
 
-        # Sample statistics
-        self.sampled_queue_sizes: list[tuple[float, int]] = []  # (time, queue_size)
+        # Interarrival and service time tracking for CV calculation
+        self.interarrival_times: list[float] = []
+        self.service_times: list[float] = []
 
     def update_time_weighted_stats(self, new_time: float):
         time_delta = new_time - self.last_event_time
@@ -136,8 +137,11 @@ class QueueSystem:
         
         self.last_event_time = new_time
 
-    def sample_statistics(self):
-        self.sampled_queue_sizes.append((self.current_time, len(self.waiting_queue)))
+    def add_interarrival_time(self, time: float):
+        self.interarrival_times.append(time)
+    
+    def add_service_time(self, time: float):
+        self.service_times.append(time)
 
     def is_server_available(self) -> bool:
         return self.server_busy < self.num_servers
@@ -169,9 +173,6 @@ class QueueSystem:
             self.last_system_size -= 1
             return client
         return None
-    
-    def get_queue_samples(self) -> list[tuple[float, int]]:
-        return self.sampled_queue_sizes
     
 
 # ===================================================
@@ -226,6 +227,7 @@ class EventHandler:
 
             # Schedule departure
             service_time = EventHandler._generate_new_time(service_type, service_params)
+            queue_system.add_service_time(service_time)
             departure_event = Event(time=event.time + service_time, 
                                     type=EventType.DEPARTURE, client_id=client.id)
             fes.schedule(departure_event)
@@ -236,6 +238,7 @@ class EventHandler:
 
         # Schedule next arrival (single arrival process, increment client id by 1)
         inter_arrival_time = EventHandler._generate_new_time(interarrival_type, interarrival_params)
+        queue_system.add_interarrival_time(inter_arrival_time)
         next_arrival_event = Event(time=event.time + inter_arrival_time,
                                    type=EventType.ARRIVAL, client_id=event.client_id + 1)
         fes.schedule(next_arrival_event)
@@ -260,6 +263,7 @@ class EventHandler:
             queue_system.serving_clients[next_client.id] = next_client
             # Schedule departure for next client
             service_time = EventHandler._generate_new_time(service_type, service_params)
+            queue_system.add_service_time(service_time)
             departure_event = Event(time=event.time + service_time, 
                                     type=EventType.DEPARTURE, client_id=next_client.id)
             fes.schedule(departure_event)
@@ -343,7 +347,6 @@ class QueueSimulator:
 
             # Update time-weighted statistics
             self.queue_system.update_time_weighted_stats(event.time)
-            self.queue_system.sample_statistics()
             self.queue_system.current_time = event.time
 
             if event.type == EventType.ARRIVAL:
@@ -355,53 +358,250 @@ class QueueSimulator:
                                               self.service_type, self.service_params)
 
     def get_statistics(self):
+        # Essential metrics only
         avg_queue_length = (self.queue_system.area_under_queue_curve / self.sim_time 
                             if self.sim_time > 0 else 0)
-        avg_system_length = (self.queue_system.area_under_system_curve / self.sim_time 
-                                if self.sim_time > 0 else 0)
-        perc_dropped = (self.queue_system.total_dropped / self.queue_system.total_arrivals * 100
-                        if self.queue_system.total_arrivals > 0 else 0)
-        avg_waiting_time = (sum(c.waiting_time() for c in self.queue_system.served_clients if c.waiting_time() is not None) /
-                            self.queue_system.total_served if self.queue_system.total_served > 0 else 0)
-        std_waiting_time = ( (sum((c.waiting_time() - avg_waiting_time) ** 2 for c in self.queue_system.served_clients if c.waiting_time() is not None) 
-                             / self.queue_system.total_served) ** 0.5
-                             if self.queue_system.total_served > 0 else 0)
-        avg_service_time = (sum(c.service_time() for c in self.queue_system.served_clients if c.service_time() is not None) /
-                            self.queue_system.total_served if self.queue_system.total_served > 0 else 0)
-        avg_server_utilization = (self.queue_system.area_under_server_curve / (self.sim_time * self.queue_system.num_servers)
-                                  if self.sim_time > 0 else 0)
+        
+        waiting_times = [c.waiting_time() for c in self.queue_system.served_clients if c.waiting_time() is not None]
+        avg_waiting_time = np.mean(waiting_times) if len(waiting_times) > 0 else 0
+        
+        std_interarrival = (np.std(self.queue_system.interarrival_times, ddof=1) 
+                           if len(self.queue_system.interarrival_times) > 1 else 0)
+        std_service = (np.std(self.queue_system.service_times, ddof=1) 
+                      if len(self.queue_system.service_times) > 1 else 0)
+        
+        utilization = (self.queue_system.area_under_server_curve / (self.sim_time * self.queue_system.num_servers)
+                      if self.sim_time > 0 else 0)
+        
         return {
-            "Total Arrivals": self.queue_system.total_arrivals,
-            "Total Served": self.queue_system.total_served,
-            "Total Dropped": self.queue_system.total_dropped,
-            "Percentage Dropped": perc_dropped,
-            "Average Queue Length": avg_queue_length,
-            "Average System Size": avg_system_length,
-            "Average Service Time": avg_service_time,
-            "Average Waiting Time": avg_waiting_time,
-            "Std Dev Waiting Time": std_waiting_time,
-            "Average Server Utilization": avg_server_utilization
+            "avg_queue_length": avg_queue_length,
+            "avg_waiting_time": avg_waiting_time,
+            "std_interarrival": std_interarrival,
+            "std_service": std_service,
+            "utilization": utilization
         }
     
     def print_statistics(self):
         stats = self.get_statistics()
-        for key, value in stats.items():
-            print(f"{key}: {value}")
+        print(f"  Queue Length: {stats['avg_queue_length']:.4f}")
+        print(f"  Waiting Time: {stats['avg_waiting_time']:.4f}")
+        print(f"  Utilization:  {stats['utilization']:.4f}")
+        print(f"  Std Inter:    {stats['std_interarrival']:.4f}")
+        print(f"  Std Service:  {stats['std_service']:.4f}")
 
-        self.plot_queue_size_over_time()
 
-    def plot_queue_size_over_time(self):
-        samples = self.queue_system.get_queue_samples()
-        times = [t for t, _ in samples]
-        sizes = [s for _, s in samples]
 
-        plt.figure(figsize=(8, 5))
-        plt.step(times, sizes, where='post')
-        plt.xlabel('Time')
-        plt.ylabel('Queue Size')
-        plt.title('Queue Size Over Time')
-        plt.grid()
-        plt.show()
+
+# ===================================================
+# TESTING FRAMEWORK WITH MULTIPLE RUNS
+# ===================================================
+
+def run_single_test(config, sim_time, num_servers, queue_capacity, seed):
+    """Run a single simulation and return statistics"""
+    np.random.seed(seed)
+    random.seed(seed)
+    
+    simulator = QueueSimulator(
+        num_servers, queue_capacity, sim_time,
+        schedule_type=ScheduleType.FCFS,
+        num_starting_customers=0,
+        interarrival_type=config["interarrival_type"],
+        interarrival_params=config["interarrival_params"],
+        service_type=config["service_type"],
+        service_params=config["service_params"]
+    )
+    
+    simulator.event_loop()
+    return simulator.get_statistics()
+
+
+def run_comparative_analysis():
+    """Run tests with multiple replications for statistical consistency"""
+    
+    # Common parameters
+    SIM_TIME = 50000.0
+    NUM_SERVERS = 1
+    QUEUE_CAPACITY = 1000
+    NUM_RUNS = 10  # Multiple runs for averaging
+    BASE_SEED = 42
+    
+    # Target mean times
+    MEAN_INTERARRIVAL = 1.0
+    MEAN_SERVICE = 0.8  # rho = 0.8
+    
+    # Define test configurations - SIMPLIFIED
+    test_configs = [
+        {
+            "name": "Exponential/Exponential",
+            "interarrival_type": DistributionType.EXPONENTIAL,
+            "interarrival_params": {"lambda": 1.0/MEAN_INTERARRIVAL},
+            "service_type": DistributionType.EXPONENTIAL,
+            "service_params": {"lambda": 1.0/MEAN_SERVICE}
+        },
+        {
+            "name": "Erlang-3/Exponential",
+            "interarrival_type": DistributionType.ERLANG_K,
+            "interarrival_params": {"lambda": 3.0/MEAN_INTERARRIVAL, "k": 3},
+            "service_type": DistributionType.EXPONENTIAL,
+            "service_params": {"lambda": 1.0/MEAN_SERVICE}
+        },
+        {
+            "name": "Hyperexp/Exponential",
+            "interarrival_type": DistributionType.HYPEREXPONENTIAL,
+            "interarrival_params": {"lambdas": [2.0, 0.666], "probabilities": [0.5, 0.5]},
+            "service_type": DistributionType.EXPONENTIAL,
+            "service_params": {"lambda": 1.0/MEAN_SERVICE}
+        },
+        {
+            "name": "Pareto/Exponential",
+            "interarrival_type": DistributionType.PARETO,
+            "interarrival_params": {"alpha": 1.5, "scale": 0.3333},
+            "service_type": DistributionType.EXPONENTIAL,
+            "service_params": {"lambda": 1.0/MEAN_SERVICE}
+        },
+        {
+            "name": "Exponential/Erlang-4",
+            "interarrival_type": DistributionType.EXPONENTIAL,
+            "interarrival_params": {"lambda": 1.0/MEAN_INTERARRIVAL},
+            "service_type": DistributionType.ERLANG_K,
+            "service_params": {"lambda": 4.0/MEAN_SERVICE, "k": 4}
+        },
+        {
+            "name": "Erlang-3/Erlang-4",
+            "interarrival_type": DistributionType.ERLANG_K,
+            "interarrival_params": {"lambda": 3.0/MEAN_INTERARRIVAL, "k": 3},
+            "service_type": DistributionType.ERLANG_K,
+            "service_params": {"lambda": 4.0/MEAN_SERVICE, "k": 4}
+        },
+        {
+            "name": "Exponential/Hyperexp",
+            "interarrival_type": DistributionType.EXPONENTIAL,
+            "interarrival_params": {"lambda": 1.0/MEAN_INTERARRIVAL},
+            "service_type": DistributionType.HYPEREXPONENTIAL,
+            "service_params": {"lambdas": [2, 0.909], "probabilities": [0.5, 0.5]}
+        },
+        {
+            "name": "Hyperexp/Hyperexp",
+            "interarrival_type": DistributionType.HYPEREXPONENTIAL,
+            "interarrival_params": {"lambdas": [2.0, 0.666], "probabilities": [0.5, 0.5]},
+            "service_type": DistributionType.HYPEREXPONENTIAL,
+            "service_params": {"lambdas": [2, 0.909], "probabilities": [0.5, 0.5]}
+        },
+        {
+            "name": "Exponential/Pareto",
+            "interarrival_type": DistributionType.EXPONENTIAL,
+            "interarrival_params": {"lambda": 1.0/MEAN_INTERARRIVAL},
+            "service_type": DistributionType.PARETO,
+            "service_params": {"alpha": 1.714, "scale": 0.3333}
+        },
+        {
+            "name": "Pareto/Pareto",
+            "interarrival_type": DistributionType.PARETO,
+            "interarrival_params": {"alpha": 1.5, "scale": 0.3333},
+            "service_type": DistributionType.PARETO,
+            "service_params": {"alpha": 1.714, "scale": 0.3333}
+        }
+    ]
+    
+    # Store averaged results
+    all_results = []
+    
+    print("\n" + "="*80)
+    print(f"RUNNING COMPARATIVE ANALYSIS ({NUM_RUNS} runs per configuration)")
+    print("="*80)
+    
+    # Run each configuration multiple times
+    for i, config in enumerate(test_configs, 1):
+        print(f"\n[{i}/{len(test_configs)}] {config['name']}")
+        
+        run_stats = []
+        for run in range(NUM_RUNS):
+            stats = run_single_test(config, SIM_TIME, NUM_SERVERS, QUEUE_CAPACITY, BASE_SEED + run)
+            run_stats.append(stats)
+            print(f"  Run {run+1}/{NUM_RUNS}: Q={stats['avg_queue_length']:.2f}, W={stats['avg_waiting_time']:.2f}")
+        
+        # Average across runs
+        avg_stats = {
+            "name": config["name"],
+            "avg_queue_length": np.mean([s['avg_queue_length'] for s in run_stats]),
+            "avg_waiting_time": np.mean([s['avg_waiting_time'] for s in run_stats]),
+            "std_interarrival": np.mean([s['std_interarrival'] for s in run_stats]),
+            "std_service": np.mean([s['std_service'] for s in run_stats]),
+            "utilization": np.mean([s['utilization'] for s in run_stats])
+        }
+        all_results.append(avg_stats)
+        
+        print(f"  → Average: Q={avg_stats['avg_queue_length']:.4f}, W={avg_stats['avg_waiting_time']:.4f}")
+    
+    # Create simplified comparison plots
+    create_comparison_plots(all_results)
+    
+    # Print comparison table
+    print_comparison_table(all_results)
+
+
+def create_comparison_plots(results):
+    """Create simplified comparison plots focusing on key metrics"""
+    
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+    fig.suptitle('Impact of Distribution Variability on Queue Performance (Same Mean)', 
+                fontsize=14, fontweight='bold')
+    
+    names = [r['name'] for r in results]
+    x_pos = np.arange(len(names))
+    
+    # 1. Average Queue Length (KEY METRIC)
+    ax1 = axes[0]
+    queue_lengths = [r['avg_queue_length'] for r in results]
+    bars = ax1.bar(x_pos, queue_lengths, alpha=0.7, edgecolor='black')
+    # Color by queue length value (normalized)
+    norm_queue = np.array(queue_lengths)
+    norm_queue = (norm_queue - norm_queue.min()) / (norm_queue.max() - norm_queue.min()) if norm_queue.max() > norm_queue.min() else np.zeros_like(norm_queue)
+    colors_queue = plt.cm.RdYlGn_r(norm_queue)
+    for bar, color in zip(bars, colors_queue):
+        bar.set_color(color)
+    ax1.set_ylabel('Average Queue Length', fontsize=11)
+    ax1.set_title('Average Queue Length vs Distribution Type', fontsize=12, fontweight='bold')
+    ax1.set_xticks(x_pos)
+    ax1.set_xticklabels(names, rotation=45, ha='right', fontsize=9)
+    ax1.grid(True, alpha=0.3, axis='y')
+    
+    # 2. Average Waiting Time (KEY METRIC)
+    ax2 = axes[1]
+    waiting_times = [r['avg_waiting_time'] for r in results]
+    bars = ax2.bar(x_pos, waiting_times, alpha=0.7, edgecolor='black')
+    # Color by waiting time value (normalized)
+    norm_wait = np.array(waiting_times)
+    norm_wait = (norm_wait - norm_wait.min()) / (norm_wait.max() - norm_wait.min()) if norm_wait.max() > norm_wait.min() else np.zeros_like(norm_wait)
+    colors_wait = plt.cm.RdYlGn_r(norm_wait)
+    for bar, color in zip(bars, colors_wait):
+        bar.set_color(color)
+    ax2.set_ylabel('Average Waiting Time', fontsize=11)
+    ax2.set_title('Average Waiting Time vs Distribution Type', fontsize=12, fontweight='bold')
+    ax2.set_xticks(x_pos)
+    ax2.set_xticklabels(names, rotation=45, ha='right', fontsize=9)
+    ax2.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig("comparative_queue_performance.png", dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+def print_comparison_table(results):
+    """Print simplified comparison table"""
+    print("\n" + "="*115)
+    print("COMPARATIVE RESULTS SUMMARY (Averaged over 10 runs)")
+    print("="*115)
+    print(f"{'Configuration':<30} {'Std Inter':<15} {'Std Service':<15} {'Queue Length':<15} {'Waiting Time':<15} {'Util':<10}")
+    print("-"*115)
+    
+    for r in results:
+        print(f"{r['name']:<30} "
+              f"{r['std_interarrival']:<15.4f} "
+              f"{r['std_service']:<15.4f} "
+              f"{r['avg_queue_length']:<15.4f} "
+              f"{r['avg_waiting_time']:<15.4f} "
+              f"{r['utilization']:<10.4f}")
 
 
 # ===================================================
@@ -409,59 +609,5 @@ class QueueSimulator:
 # ===================================================
 
 if __name__ == "__main__":
-    random.seed(0)
-
-    # Simulation parameters
-    SIM_TIME = 10000.0     # Total simulation time
-    SCHEDULING = ScheduleType.FCFS
-
-    # Setups
-    NUM_SERVERS = 1
-    QUEUE_CAPACITY = 1000
-    NUM_STARTING_CUSTOMERS = 0 # Change to test initial conditions (e.g., 0, 1000)
-
-    # Interarrival exponential distribution
-    # interarrival_type = DistributionType.EXPONENTIAL
-    # interarrival_params = {"lambda": 1.0}
-
-    # Interarrival hyperexponential distribution
-    # interarrival_type = DistributionType.HYPEREXPONENTIAL
-    # interarrival_params = {"lambdas": [1.0, 2.0], "probabilities": [0.6, 0.4]}
-
-    # Interarrival erlang-k distribution
-    # interarrival_type = DistributionType.ERLANG_K
-    # interarrival_params = {"lambda": 1.0, "k": 3}
-
-    # Interarrival pareto distribution
-    interarrival_type = DistributionType.PARETO
-    interarrival_params = {"alpha": 2.5}
-
-    # Service exponential distribution
-    service_type = DistributionType.EXPONENTIAL
-    service_params = {"lambda": 0.8}
-
-    # Service hyperexponential distribution
-    # service_type = DistributionType.HYPEREXPONENTIAL
-    # service_params = {"lambdas": [1, 2.0], "probabilities": [0.6, 0.4]}
-
-    # Service erlang-k distribution
-    # service_type = DistributionType.ERLANG_K
-    # service_params = {"lambda": 1.5, "k": 2}
-
-    # Service pareto distribution
-    # service_type = DistributionType.PARETO
-    # service_params = {"alpha": 3.0}
-
-
-    # Initialize and run the simulator for each configuration
-    print(f"\n--- Simulation with {NUM_SERVERS} servers, queue capacity {QUEUE_CAPACITY} and scheduling {SCHEDULING} ---")
-    simulator = QueueSimulator(NUM_SERVERS, QUEUE_CAPACITY, 
-                                SIM_TIME, schedule_type=SCHEDULING,
-                                num_starting_customers=NUM_STARTING_CUSTOMERS,
-                                interarrival_type=interarrival_type,
-                                interarrival_params=interarrival_params,
-                                service_type=service_type,
-                                service_params=service_params)
-    simulator.event_loop()
-    simulator.print_statistics()
+    run_comparative_analysis()
 
