@@ -530,7 +530,7 @@ class EventHandlers:
         # If not enough time, skip buying and cap dwell time
         if expected_total_time >= security_cutoff_time:
             buys = False
-            landside_dwell_time = min(security_cutoff_time - event.time, landside_dwell_time)
+            landside_dwell_time = max(0, min(security_cutoff_time - event.time, landside_dwell_time))
         
         metrics.add_landside_dwell_time(landside_dwell_time * (1 + passenger.num_companions))
         
@@ -665,7 +665,7 @@ class EventHandlers:
         # If not enough time, skip buying and cap dwell time
         if expected_total_time >= boarding_cutoff_time:
             buys = False
-            airside_dwell_time = min(boarding_cutoff_time - event.time, airside_dwell_time)
+            airside_dwell_time = max(0, min(boarding_cutoff_time - event.time, airside_dwell_time))
 
         metrics.add_airside_dwell_time(airside_dwell_time)
 
@@ -996,9 +996,6 @@ class SimulationEngine:
         """Plot time series of system state."""
         import matplotlib.pyplot as plt
         
-        fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-        fig.suptitle('Airport System Time Series Analysis', fontsize=16, fontweight='bold')
-        
         # Extract time series data
         times_airport = sorted(self.metrics.samples_number_in_airport.keys())
         counts_airport = [self.metrics.samples_number_in_airport[t] for t in times_airport]
@@ -1015,66 +1012,69 @@ class SimulationEngine:
         times_boarding = sorted(self.metrics.samples_number_in_boarding.keys())
         counts_boarding = [self.metrics.samples_number_in_boarding[t] for t in times_boarding]
         
-        # Plot 1: Total in Airport
-        axes[0, 0].plot(times_airport, counts_airport, 'b-', linewidth=1)
-        axes[0, 0].set_title('Total Passengers in Airport')
-        axes[0, 0].set_xlabel('Time (minutes)')
-        axes[0, 0].set_ylabel('Number of Passengers')
-        axes[0, 0].grid(True, alpha=0.3)
-        
-        # Plot 2: Landside vs Airside
-        axes[0, 1].plot(times_landside, counts_landside, 'g-', label='Landside', linewidth=1)
-        axes[0, 1].plot(times_airside, counts_airside, 'r-', label='Airside', linewidth=1)
-        axes[0, 1].set_title('Landside vs Airside')
-        axes[0, 1].set_xlabel('Time (minutes)')
-        axes[0, 1].set_ylabel('Number of Passengers')
-        axes[0, 1].legend()
-        axes[0, 1].grid(True, alpha=0.3)
-        
-        # Plot 3: Security System
-        axes[1, 0].plot(times_security, counts_security, 'm-', linewidth=1)
-        axes[1, 0].set_title('Passengers in Security')
-        axes[1, 0].set_xlabel('Time (minutes)')
-        axes[1, 0].set_ylabel('Number of Passengers')
-        axes[1, 0].grid(True, alpha=0.3)
-        
-        # Plot 4: Boarding System
-        axes[1, 1].plot(times_boarding, counts_boarding, 'c-', linewidth=1)
-        axes[1, 1].set_title('Passengers in Boarding')
-        axes[1, 1].set_xlabel('Time (minutes)')
-        axes[1, 1].set_ylabel('Number of Passengers')
-        axes[1, 1].grid(True, alpha=0.3)
-        
-        # Plot 5: Distribution by area
-        axes[2, 0].hist([counts_landside, counts_airside, counts_security, counts_boarding], 
-                       label=['Landside', 'Airside', 'Security', 'Boarding'],
-                       bins=20, alpha=0.7)
-        axes[2, 0].set_title('Distribution of Passenger Counts')
-        axes[2, 0].set_xlabel('Number of Passengers')
-        axes[2, 0].set_ylabel('Frequency')
-        axes[2, 0].legend()
-        axes[2, 0].grid(True, alpha=0.3)
-        
-        # Plot 6: Priority Class Performance
+        # ========== FIGURE 1: Wait Times by Priority Class (Security and Boarding) ==========
+        fig1, ax1 = plt.subplots(figsize=(12, 6))
         priority_names = [pc.name for pc in PriorityClass]
         security_waits = [self.metrics.get_average_security_wait_per_priority(pc) for pc in PriorityClass]
         boarding_waits = [self.metrics.get_average_boarding_wait_per_priority(pc) for pc in PriorityClass]
         
         x = np.arange(len(priority_names))
         width = 0.35
-        axes[2, 1].bar(x - width/2, security_waits, width, label='Security Wait', alpha=0.8)
-        axes[2, 1].bar(x + width/2, boarding_waits, width, label='Boarding Wait', alpha=0.8)
-        axes[2, 1].set_title('Average Wait Times by Priority Class')
-        axes[2, 1].set_xlabel('Priority Class')
-        axes[2, 1].set_ylabel('Wait Time (minutes)')
-        axes[2, 1].set_xticks(x)
-        axes[2, 1].set_xticklabels(priority_names)
-        axes[2, 1].legend()
-        axes[2, 1].grid(True, alpha=0.3)
+        
+        bars1 = ax1.bar(x - width/2, security_waits, width, label='Security Wait', 
+                       color='#3498db', alpha=0.8, edgecolor='black')
+        bars2 = ax1.bar(x + width/2, boarding_waits, width, label='Boarding Wait', 
+                       color='#e74c3c', alpha=0.8, edgecolor='black')
+        
+        ax1.set_title('Average Wait Times by Priority Class', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Priority Class', fontsize=12, fontweight='bold')
+        ax1.set_ylabel('Wait Time (minutes)', fontsize=12, fontweight='bold')
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(priority_names)
+        ax1.legend(fontsize=11, loc='upper right')
+        ax1.grid(axis='y', alpha=0.3, linestyle='--')
+        
+        # Add value labels on bars
+        for bar in bars1:
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        for bar in bars2:
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
         
         plt.tight_layout()
-        # plt.savefig('airport_simulation_analysis.png', dpi=300, bbox_inches='tight')
-        # print(f"\nPlot saved as 'airport_simulation_analysis.png'")
+        plt.savefig('wait_times_by_class.png', dpi=300, bbox_inches='tight')
+        print(f"\n📊 Wait times by class plot saved to: wait_times_by_class.png")
+        plt.show()
+        
+        # ========== FIGURE 2: Airport System Time Series (2 subplots) ==========
+        fig2, axes = plt.subplots(2, 1, figsize=(14, 10))
+        fig2.suptitle('Airport System Time Series Analysis', fontsize=16, fontweight='bold')
+        
+        # Subplot 1: Total Passengers in Airport
+        axes[0].plot(times_airport, counts_airport, 'b-', linewidth=2, label='Total in Airport')
+        axes[0].set_title('Total Passengers in Airport', fontsize=13, fontweight='bold')
+        axes[0].set_xlabel('Time (minutes)', fontsize=11)
+        axes[0].set_ylabel('Number of Passengers', fontsize=11)
+        axes[0].legend(fontsize=10, loc='upper right')
+        axes[0].grid(True, alpha=0.3, linestyle='--')
+        
+        # Subplot 2: Breakdown by Location (4 lines)
+        axes[1].plot(times_landside, counts_landside, 'g-', label='Landside', linewidth=2)
+        axes[1].plot(times_airside, counts_airside, 'r-', label='Airside', linewidth=2)
+        axes[1].plot(times_security, counts_security, 'm-', label='In Security', linewidth=2)
+        axes[1].plot(times_boarding, counts_boarding, 'c-', label='In Boarding', linewidth=2)
+        axes[1].set_title('Passengers by Location', fontsize=13, fontweight='bold')
+        axes[1].set_xlabel('Time (minutes)', fontsize=11)
+        axes[1].set_ylabel('Number of Passengers', fontsize=11)
+        axes[1].legend(fontsize=10, loc='upper right')
+        axes[1].grid(True, alpha=0.3, linestyle='--')
+        
+        plt.tight_layout()
+        plt.savefig('airport_time_series.png', dpi=300, bbox_inches='tight')
+        print(f"📊 Time series plot saved to: airport_time_series.png")
         plt.show()
 
 
@@ -1111,7 +1111,7 @@ def run_multiple_simulations(num_runs: int, base_seed: int, show_plots: bool = F
     STDDEV_ARRIVAL_TIME_BEFORE_FLIGHT = 30.0
     CASHIER_SERVICE_RATE = 2.0
     SECURITY_SERVICE_RATE = 1.5
-    BOARDING_SERVICE_RATE = .5
+    BOARDING_SERVICE_RATE = 0.5
     SECURITY_DEADLINE = 40
     BOARDING_WINDOW_START = 45
     BOARDING_DEADLINE = 20
@@ -1197,33 +1197,51 @@ def run_multiple_simulations(num_runs: int, base_seed: int, show_plots: bool = F
 # --------------------------------------------------
 if __name__ == "__main__":
     # Choose mode: single run or multiple runs with CI
-    MODE = "single"  # Change to "single" for single detailed run with plots
+    MODE = "multiple"  # Change to "single" for single detailed run with plots
     
     if MODE == "single":
         # Single detailed run with plots
         np.random.seed(42)
         
-        # Simulation parameters
-        SIMULATION_TIME = 24 * 60  # 24 hours in minutes
-        BUYING_PROB = 0.8
-        NUM_CASHIER_SERVERS_LAND = 17
-        NUM_CASHIER_SERVERS_AIR = 8
-        NUM_SECURITY_SERVERS = 8
-        NUM_BOARDING_SERVERS = 2
-        AVG_LANDSIDE_DWELL_TIME = 30.0  # in minutes
-        AVG_AIRSIDE_DWELL_TIME = 15.0    # in minutes
-        AVG_COMPANIONS = 1.5
-        AVG_PASSENGERS_PER_FLIGHT = 100.0
-        PRIORITY_PROBS = [0.7, 0.2, 0.1]  # Probabilities for priority classes
-        AVG_ARRIVAL_TIME_BEFORE_FLIGHT = 120.0  # in minutes
-        STDDEV_ARRIVAL_TIME_BEFORE_FLIGHT = 30.0  # in minutes
-        CASHIER_SERVICE_RATE = 2.0  # average service time in minutes
-        SECURITY_SERVICE_RATE = 1.5  # average service time in minutes
-        BOARDING_SERVICE_RATE = .5  # average service time in minutes
-        SECURITY_DEADLINE = 40  # Passengers must finish security AT LEAST this many minutes before takeoff
+        # ============================================================================
+        # SIMULATION HYPERPARAMETERS - All configurable parameters
+        # ============================================================================
+        
+        # --- Temporal Configuration ---
+        SIMULATION_TIME = 24 * 60  # 24 hours (full working day) in minutes
+        
+        # --- Flight Scheduling ---
+        FLIGHT_FREQUENCY = 20  # Minutes between each flight departure
+        AVG_PASSENGERS_PER_FLIGHT = 100.0  # Average number of passengers per flight
+        
+        # --- Resource Allocation (Server Counts) ---
+        NUM_CASHIER_SERVERS_LAND = 17  # Number of cashier servers in landside
+        NUM_CASHIER_SERVERS_AIR = 8    # Number of cashier servers in airside
+        NUM_SECURITY_SERVERS = 8       # Number of security screening servers
+        NUM_BOARDING_SERVERS = 2       # Number of boarding gate servers
+        
+        # --- Service Rates (minutes per customer) ---
+        CASHIER_SERVICE_RATE = 2.0   # Average service time at cashier (exponential)
+        SECURITY_SERVICE_RATE = 1.5  # Average service time at security (exponential)
+        BOARDING_SERVICE_RATE = 0.5  # Average service time at boarding (exponential)
+        
+        # --- Passenger Behavior ---
+        BUYING_PROB = 0.8              # Probability passenger shops at cashiers (0.0-1.0)
+        AVG_COMPANIONS = 1.5           # Average number of companions per customer group
+        AVG_LANDSIDE_DWELL_TIME = 30.0 # Average time spent shopping landside (minutes)
+        AVG_AIRSIDE_DWELL_TIME = 15.0  # Average time spent shopping airside (minutes)
+        
+        # --- Arrival Patterns ---
+        AVG_ARRIVAL_TIME_BEFORE_FLIGHT = 120.0     # Average arrival time before flight (minutes)
+        STDDEV_ARRIVAL_TIME_BEFORE_FLIGHT = 30.0   # Std deviation of arrival times (minutes)
+        
+        # --- Priority Class Distribution ---
+        PRIORITY_PROBS = [0.7, 0.2, 0.1]  # [Economy, Business, First Class] probabilities
+        
+        # --- Time Constraints ---
+        SECURITY_DEADLINE = 40      # Must finish security AT LEAST this many min before takeoff
         BOARDING_WINDOW_START = 45  # Boarding begins this many minutes before takeoff
-        BOARDING_DEADLINE = 20  # Passengers must finish boarding AT LEAST this many minutes before takeoff
-        FLIGHT_FREQUENCY = 20 # Minutes between each flight departure
+        BOARDING_DEADLINE = 20      # Must finish boarding AT LEAST this many min before takeoff
 
         # Initialize and run simulation
         simulation_engine = SimulationEngine(SIMULATION_TIME, BUYING_PROB, NUM_CASHIER_SERVERS_LAND, NUM_CASHIER_SERVERS_AIR,
@@ -1238,7 +1256,7 @@ if __name__ == "__main__":
         
     elif MODE == "multiple":
         # Multiple runs with confidence intervals
-        NUM_RUNS = 10  # Number of independent replications
+        NUM_RUNS = 20  # Number of independent replications
         BASE_SEED = 0  # Base seed value
         SHOW_PLOTS = True  # Show plots for last run
         VERBOSE = False  # Set to True to see detailed stats for each run
