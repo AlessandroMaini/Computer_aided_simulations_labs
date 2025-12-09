@@ -355,10 +355,9 @@ class SimulationEngine:
         # Aggregation: Total C = C_M + C_F + C_F_preg
         c_total = np.array(self.metrics.history_C_M) + np.array(self.metrics.history_C_F) + np.array(self.metrics.history_C_F_preg)
 
-        plt.figure(figsize=(12, 8))
+        plt.figure(figsize=(12, 6))
         
-        # 1. Population Dynamics with CI bands
-        plt.subplot(2, 1, 1)
+        # Population Dynamics with CI bands
         
         if num_runs > 1:
             plt.plot(times, h_total, label='Herbivores (Last Run)', color='green', linewidth=1.5)
@@ -390,26 +389,17 @@ class SimulationEngine:
             plt.axhline(y=self.params['H_threshold'], color='gray', linestyle='--', 
                        alpha=0.3, label='H Threshold')
         
+        plt.xlabel('Time')
         plt.ylabel('Population')
         if num_runs > 1:
-            plt.title(f'Population Dynamics with Gestation (95% CI, n={num_runs} runs)')
+            plt.title(f'Population Dynamics (95% CI, n={num_runs} runs)')
         else:
-            plt.title('Population Dynamics with Gestation')
-        plt.legend(loc='best', fontsize=8)
-        plt.grid(True, alpha=0.3)
-        
-        # 2. Phase Portrait (H vs C)
-        plt.subplot(2, 1, 2)
-        plt.plot(h_total, c_total, color='blue', alpha=0.6)
-        plt.plot(h_total[0], c_total[0], 'go', markersize=8, label='Start')
-        plt.plot(h_total[-1], c_total[-1], 'rx', markersize=10, label='End')
-        plt.xlabel('Herbivores')
-        plt.ylabel('Carnivores')
-        plt.title('Phase Portrait (H vs C)')
-        plt.legend()
+            plt.title('Population Dynamics')
+        plt.legend(loc='upper right', fontsize=8, framealpha=0.9)
         plt.grid(True, alpha=0.3)
         
         plt.tight_layout()
+        # plt.savefig('population_dynamics.png', dpi=300) # Save if needed
         plt.show()
 
 # --------------------------------------------------
@@ -550,10 +540,10 @@ def run_multiple_simulations(num_runs: int, base_seed: int, t_max: float,
 # --------------------------------------------------
 if __name__ == "__main__":
     # --- CONFIGURATION ---
-    MODE = "single"  # Change to "single" for single detailed run with plots
+    MODE = "multiple"  # Change to "single" for single detailed run with plots
     
     # Initial Populations
-    initial_pop = {'H_M': 80, 'H_F': 80, 'C_M': 5, 'C_F': 5}
+    initial_pop = {'H_M': 75, 'H_F': 75, 'C_M': 25, 'C_F': 25}
     
     # Model Parameters (OPTIMIZED FOR MAXIMUM STABILITY)
     parameters = {
@@ -596,7 +586,7 @@ if __name__ == "__main__":
     
     elif MODE == "multiple":
         # Multiple runs with confidence intervals
-        NUM_RUNS = 30        # Number of independent replications
+        NUM_RUNS = 20        # Number of independent replications
         BASE_SEED = 42       # Base seed value
         T_MAX = 1000.0        # Simulation time (longer for steady-state analysis)
         SHOW_PLOTS = True    # Show plots for last run
