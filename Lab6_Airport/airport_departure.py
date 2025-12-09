@@ -1045,8 +1045,8 @@ class SimulationEngine:
                     f'{height:.2f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
         
         plt.tight_layout()
-        plt.savefig('wait_times_by_class.png', dpi=300, bbox_inches='tight')
-        print(f"\n📊 Wait times by class plot saved to: wait_times_by_class.png")
+        # plt.savefig('wait_times_by_class.png', dpi=300, bbox_inches='tight') # Save if needed
+        # print(f"\n📊 Wait times by class plot saved to: wait_times_by_class.png")
         plt.show()
         
         # ========== FIGURE 2: Airport System Time Series (2 subplots) ==========
@@ -1073,8 +1073,8 @@ class SimulationEngine:
         axes[1].grid(True, alpha=0.3, linestyle='--')
         
         plt.tight_layout()
-        plt.savefig('airport_time_series.png', dpi=300, bbox_inches='tight')
-        print(f"📊 Time series plot saved to: airport_time_series.png")
+        # plt.savefig('airport_time_series.png', dpi=300, bbox_inches='tight') # Save if needed
+        # print(f"📊 Time series plot saved to: airport_time_series.png")
         plt.show()
 
 
