@@ -28,3 +28,5 @@ python majority_model.py
 ```
 
 Each script saves results to JSON files. The majority model also produces visualizations of opinion dynamics over time.
+
+**Note:** Some runs may take a long time (>60 minutes), particularly the majority model simulations. Each simulation runs up to `max_time=100` (simulation time parameter) with multiple replications on large graphs, which significantly increases the computation time.
