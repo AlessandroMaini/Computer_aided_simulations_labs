@@ -3,10 +3,11 @@ import math
 import json
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from gnp import fast_gnp_random_graph
+from gnr import gnr_random_graph
 import numpy as np
+import networkx as nx
 
-def majority_model_with_tracking(G, initial_opinion_prob, max_time=1000, sample_interval=0.1):
+def majority_model_with_tracking(G, initial_opinion_prob, max_time=100, sample_interval=0.1):
     """
     Simulate the majority model on graph G and track opinion counts over time.
     
@@ -142,14 +143,15 @@ def compute_average_time_series(all_times, all_positive_counts, all_negative_cou
     
     return avg_times, avg_positive_counts, avg_negative_counts
 
-def run_majority_model_experiments(n, p, initial_opinion_probs, seed=42, output_file="majority_model_results.json"):
+def run_majority_model_experiments(n, r, initial_opinion_probs, num_replications=10, seed=42, output_file="majority_model_results.json"):
     """
-    Run majority model experiments on G(n, p) graphs for given initial opinion probabilities.
+    Run majority model experiments on G(n, r) graphs for given initial opinion probabilities.
     
     Parameters:
     - n: Number of nodes
-    - p: Probability of edge creation
+    - r: Radius for edge creation in random geometric graph
     - initial_opinion_probs: List of initial opinion probabilities to test
+    - num_replications: Number of replications for each parameter combination
     - seed: Random seed for reproducibility
     - output_file: Path to save JSON results
     
@@ -170,8 +172,8 @@ def run_majority_model_experiments(n, p, initial_opinion_probs, seed=42, output_
         all_positive_counts = []
         all_negative_counts = []
         
-        for _ in tqdm(range(10)):
-            G = fast_gnp_random_graph(n, p)
+        for _ in tqdm(range(num_replications)):
+            G = gnr_random_graph(n, r)
             times, pos_counts, neg_counts, consensus_reached, consensus, time = majority_model_with_tracking(G, prob)
             
             # Store the time series data
@@ -183,21 +185,21 @@ def run_majority_model_experiments(n, p, initial_opinion_probs, seed=42, output_
                 consensus_count += 1
                 if consensus == 1:
                     consensus_positive_count += 1
-            total_time += time
+                total_time += time
         
         # Compute average time series across replications
         avg_times, avg_pos_counts, avg_neg_counts = compute_average_time_series(
             all_times, all_positive_counts, all_negative_counts
         )
         
-        avg_time = total_time / 10
+        avg_time = total_time / consensus_count if consensus_count > 0 else 0
         result_entry = {
             "n": n,
-            "p": p,
+            "r": r,
             "initial_opinion_prob": prob,
-            "consensus_probability": consensus_count / 10,
+            "consensus_probability": consensus_count / num_replications,
             "consensus_positive_probability": consensus_positive_count / consensus_count if consensus_count > 0 else 0,
-            "average_time": avg_time
+            "average_time_to_consensus": avg_time
         }
         results.append(result_entry)
 
@@ -207,8 +209,8 @@ def run_majority_model_experiments(n, p, initial_opinion_probs, seed=42, output_
         
         # Plot the average across replications with individual trajectories
         plot_opinion_dynamics(avg_times.tolist(), avg_pos_counts.tolist(), avg_neg_counts.tolist(), 
-                              title=f"Average Majority Model Dynamics (p={prob:.3f}, n={n}, 10 reps)",
-                              save_path=f"majority_model_avg_dynamics_n{n}_prob{prob}.png",
+                              title=f"Average Majority Model Dynamics (p={prob:.1f}, n={n}, {num_replications} reps)",
+                              save_path=f"majority_model_avg_dynamics_n{n}_p{prob:.1f}_gnr.png",
                               all_times=all_times, all_positive_counts=all_positive_counts, 
                               all_negative_counts=all_negative_counts)
     
@@ -220,7 +222,7 @@ def run_majority_model_experiments(n, p, initial_opinion_probs, seed=42, output_
 
 if __name__ == "__main__":
     n = 10000
-    p = 3 * math.log(n) / n
+    r = math.sqrt((3 * math.log(n)) / (n * math.pi))
     initial_opinion_probs = [0.5, 0.6, 0.7, 0.8]
     
-    run_majority_model_experiments(n, p, initial_opinion_probs, seed=42, output_file="majority_model_results.json")
+    run_majority_model_experiments(n, r, initial_opinion_probs, num_replications=20, seed=42, output_file="majority_model_results_gnr.json")

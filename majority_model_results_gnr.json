@@ -1,0 +1,34 @@
+[
+    {
+        "n": 10000,
+        "r": 0.029656748281888787,
+        "initial_opinion_prob": 0.5,
+        "consensus_probability": 0.0,
+        "consensus_positive_probability": 0,
+        "average_time_to_consensus": 0
+    },
+    {
+        "n": 10000,
+        "r": 0.029656748281888787,
+        "initial_opinion_prob": 0.6,
+        "consensus_probability": 0.0,
+        "consensus_positive_probability": 0,
+        "average_time_to_consensus": 0
+    },
+    {
+        "n": 10000,
+        "r": 0.029656748281888787,
+        "initial_opinion_prob": 0.7,
+        "consensus_probability": 0.8,
+        "consensus_positive_probability": 1.0,
+        "average_time_to_consensus": 8.991164410597769
+    },
+    {
+        "n": 10000,
+        "r": 0.029656748281888787,
+        "initial_opinion_prob": 0.8,
+        "consensus_probability": 1.0,
+        "consensus_positive_probability": 1.0,
+        "average_time_to_consensus": 8.347201592161978
+    }
+]
